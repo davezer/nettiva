@@ -6,13 +6,15 @@ import {
   slug,
   stableOrderItemId
 } from './finance-normalize';
+import { categoryFromSku, parseSku } from './sku-control';
 
 type EbayEnv = App.Platform['env'];
 type Money = { value?: string; currency?: string };
-type ActiveListing = {
+type SellingListing = {
   itemId: string; title: string; sku: string | null; imageUrl: string | null;
   priceCents: number; quantity: number; listedAt: string | null;
   viewItemUrl: string | null; conditionName: string | null;
+  state: 'active' | 'scheduled';
 };
 type EbayLineItem = {
   lineItemId: string;
@@ -49,6 +51,15 @@ type FinanceTransaction = {
   orderLineItems?: FinanceOrderLine[];
 };
 
+type InventoryLookupRow = {
+  id: string;
+  sku: string | null;
+  ebayItemId: string | null;
+  status: string;
+};
+
+const skuKey = (value?: string | null) => value?.trim().toLowerCase() || null;
+
 const cents = (value?: string) => Math.round(Number(value ?? 0) * 100);
 const decodeXml = (value: string) => value.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
 function tag(xml: string, name: string) {
@@ -59,15 +70,19 @@ function blocks(xml: string, name: string) {
   return [...xml.matchAll(new RegExp(`<${name}(?:\\s[^>]*)?>[\\s\\S]*?</${name}>`, 'gi'))].map((match) => match[0]);
 }
 
-async function fetchActiveListings(accessToken: string) {
-  const collected: ActiveListing[] = [];
+async function fetchSellingListings(
+  accessToken: string,
+  listName: 'ActiveList' | 'ScheduledList',
+  state: 'active' | 'scheduled'
+) {
+  const collected: SellingListing[] = [];
   let page = 1;
   let totalPages = 1;
   do {
     const requestXml = `<?xml version="1.0" encoding="utf-8"?>
       <GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents">
         <DetailLevel>ReturnAll</DetailLevel>
-        <ActiveList><Include>true</Include><Pagination><EntriesPerPage>200</EntriesPerPage><PageNumber>${page}</PageNumber></Pagination></ActiveList>
+        <${listName}><Include>true</Include><Pagination><EntriesPerPage>200</EntriesPerPage><PageNumber>${page}</PageNumber></Pagination></${listName}>
       </GetMyeBaySellingRequest>`;
     const response = await fetch('https://api.ebay.com/ws/api.dll', {
       method: 'POST',
@@ -81,25 +96,27 @@ async function fetchActiveListings(accessToken: string) {
       body: requestXml
     });
     const xml = await response.text();
-    if (!response.ok || tag(xml, 'Ack') === 'Failure') throw new Error(tag(xml, 'LongMessage') || 'eBay listing import failed.');
-    const activeXml = tag(xml, 'ActiveList') ?? '';
-    for (const item of blocks(activeXml, 'Item')) {
+    if (!response.ok || tag(xml, 'Ack') === 'Failure') throw new Error(tag(xml, 'LongMessage') || `eBay ${state} listing import failed.`);
+    const listXml = tag(xml, listName) ?? '';
+    for (const item of blocks(listXml, 'Item')) {
       const itemId = tag(item, 'ItemID');
       const title = tag(item, 'Title');
       if (!itemId || !title) continue;
+      const currentPrice = tag(tag(item, 'SellingStatus') ?? '', 'CurrentPrice') ?? tag(item, 'StartPrice') ?? undefined;
       collected.push({
         itemId,
         title,
         sku: tag(item, 'SKU'),
         imageUrl: tag(tag(item, 'PictureDetails') ?? '', 'GalleryURL'),
-        priceCents: cents(tag(tag(item, 'SellingStatus') ?? '', 'CurrentPrice') ?? undefined),
+        priceCents: cents(currentPrice),
         quantity: Number(tag(item, 'QuantityAvailable') ?? tag(item, 'Quantity') ?? 1),
         listedAt: tag(item, 'StartTime'),
         viewItemUrl: tag(tag(item, 'ListingDetails') ?? '', 'ViewItemURL'),
-        conditionName: tag(item, 'ConditionDisplayName')
+        conditionName: tag(item, 'ConditionDisplayName'),
+        state
       });
     }
-    totalPages = Math.min(Number(tag(tag(activeXml, 'PaginationResult') ?? '', 'TotalNumberOfPages') ?? 1), 25);
+    totalPages = Math.min(Number(tag(tag(listXml, 'PaginationResult') ?? '', 'TotalNumberOfPages') ?? 1), 25);
     page += 1;
   } while (page <= totalPages);
   return collected;
@@ -160,29 +177,132 @@ export async function syncEbay(env: EbayEnv) {
 
   try {
     const accessToken = await getAccessToken(env);
-    const [active, orders, transactions] = await Promise.all([
-      fetchActiveListings(accessToken),
+    const [active, scheduled, orders, transactions] = await Promise.all([
+      fetchSellingListings(accessToken, 'ActiveList', 'active'),
+      fetchSellingListings(accessToken, 'ScheduledList', 'scheduled'),
       fetchOrders(accessToken),
       fetchFinancialTransactions(accessToken)
     ]);
     const now = new Date().toISOString();
+
+    // Reconcile Nettiva intake records before creating new eBay inventory rows.
+    // A unique manual SKU/custom label is the safest automatic match.
+    const inventoryLookup = await db.prepare(`
+      SELECT
+        id,
+        sku,
+        ebay_item_id AS ebayItemId,
+        status
+      FROM inventory_items
+      WHERE ebay_item_id IS NOT NULL
+         OR (sku IS NOT NULL AND TRIM(sku) <> '')
+    `).all<InventoryLookupRow>();
+
+    const inventoryIdByEbayItemId = new Map<string, string>();
+    const manualIdsBySku = new Map<string, string[]>();
+
+    for (const row of inventoryLookup.results) {
+      if (row.ebayItemId) inventoryIdByEbayItemId.set(row.ebayItemId, row.id);
+
+      const key = skuKey(row.sku);
+      if (!row.ebayItemId && row.status === 'unlisted' && key) {
+        const ids = manualIdsBySku.get(key) ?? [];
+        ids.push(row.id);
+        manualIdsBySku.set(key, ids);
+      }
+    }
+
+    const uniqueManualIdBySku = new Map<string, string>();
+    for (const [key, ids] of manualIdsBySku) {
+      if (ids.length === 1) uniqueManualIdBySku.set(key, ids[0]);
+    }
+
+    // A manual SKU match is only safe if eBay is also using that SKU on exactly one
+    // currently active/scheduled listing. Duplicate eBay SKUs are never auto-merged.
+    const sellingSkuCounts = new Map<string, number>();
+    for (const item of [...scheduled, ...active]) {
+      const key = skuKey(item.sku);
+      if (key) sellingSkuCounts.set(key, (sellingSkuCounts.get(key) ?? 0) + 1);
+    }
+
     const statements: D1PreparedStatement[] = [];
 
-    for (const item of active) {
+    // Scheduled first, active second. Active wins if eBay briefly returns an item in both states.
+    for (const item of [...scheduled, ...active]) {
+      const key = skuKey(item.sku);
+      const inventoryId =
+        inventoryIdByEbayItemId.get(item.itemId) ??
+        (key && sellingSkuCounts.get(key) === 1 ? uniqueManualIdBySku.get(key) : undefined) ??
+        `ebay:${item.itemId}`;
+
+      inventoryIdByEbayItemId.set(item.itemId, inventoryId);
+      const inventoryCategory = categoryFromSku(item.sku);
+      const listingStatus = item.state;
+
       statements.push(db.prepare(`
-        INSERT INTO inventory_items (id, title, sku, ebay_item_id, condition_name, image_url, status, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'active', ?)
-        ON CONFLICT(id) DO UPDATE SET title = excluded.title, sku = excluded.sku,
-          condition_name = excluded.condition_name, image_url = excluded.image_url,
-          status = 'active', updated_at = excluded.updated_at
-      `).bind(`ebay:${item.itemId}`, item.title, item.sku, item.itemId, item.conditionName, item.imageUrl, now));
+        INSERT INTO inventory_items (
+          id, title, sku, ebay_item_id, condition_name, image_url,
+          inventory_category, status, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          title = excluded.title,
+          sku = excluded.sku,
+          ebay_item_id = excluded.ebay_item_id,
+          condition_name = excluded.condition_name,
+          image_url = excluded.image_url,
+          inventory_category = CASE
+            WHEN inventory_items.inventory_category = 'other' THEN excluded.inventory_category
+            ELSE inventory_items.inventory_category
+          END,
+          status = excluded.status,
+          updated_at = excluded.updated_at
+      `).bind(inventoryId, item.title, item.sku, item.itemId, item.conditionName, item.imageUrl, inventoryCategory, listingStatus, now));
+
       statements.push(db.prepare(`
-        INSERT INTO listings (id, inventory_item_id, ebay_listing_id, price_cents, quantity, listed_at, status, view_item_url, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)
-        ON CONFLICT(id) DO UPDATE SET price_cents = excluded.price_cents,
-          quantity = excluded.quantity, listed_at = excluded.listed_at,
-          status = 'active', view_item_url = excluded.view_item_url, updated_at = excluded.updated_at
-      `).bind(`ebay:${item.itemId}`, `ebay:${item.itemId}`, item.itemId, item.priceCents, item.quantity, item.listedAt, item.viewItemUrl, now));
+        INSERT INTO listings (
+          id, inventory_item_id, ebay_listing_id, price_cents, quantity,
+          listed_at, status, view_item_url, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          inventory_item_id = excluded.inventory_item_id,
+          price_cents = excluded.price_cents,
+          quantity = excluded.quantity,
+          listed_at = excluded.listed_at,
+          status = excluded.status,
+          view_item_url = excluded.view_item_url,
+          updated_at = excluded.updated_at
+      `).bind(`ebay:${item.itemId}`, inventoryId, item.itemId, item.priceCents, item.quantity, item.listedAt, listingStatus, item.viewItemUrl, now));
+
+      const parsedSku = parseSku(item.sku);
+      if (parsedSku) {
+        const reservationSource = item.state === 'scheduled' ? 'ebay_scheduled' : 'ebay_active';
+        statements.push(db.prepare(`
+          INSERT INTO sku_reservations (
+            id, sku, prefix, sequence_number, source, status,
+            title, ebay_item_id, inventory_item_id, reserved_at, updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, 'claimed', ?, ?, ?, ?, ?)
+          ON CONFLICT(sku) DO UPDATE SET
+            prefix = excluded.prefix,
+            sequence_number = excluded.sequence_number,
+            source = excluded.source,
+            status = 'claimed',
+            title = excluded.title,
+            ebay_item_id = excluded.ebay_item_id,
+            inventory_item_id = excluded.inventory_item_id,
+            updated_at = excluded.updated_at
+        `).bind(`ebay-sku:${item.itemId}`, parsedSku.sku, parsedSku.prefix, parsedSku.sequence, reservationSource, item.title, item.itemId, inventoryId, now, now));
+
+        statements.push(db.prepare(`
+          INSERT INTO sku_sequences (prefix, last_number, updated_at)
+          VALUES (?, ?, ?)
+          ON CONFLICT(prefix) DO UPDATE SET
+            last_number = MAX(sku_sequences.last_number, excluded.last_number),
+            updated_at = excluded.updated_at
+        `).bind(parsedSku.prefix, parsedSku.sequence, now));
+      }
     }
 
     for (const order of orders) {
@@ -197,7 +317,9 @@ export async function syncEbay(env: EbayEnv) {
       const lines = order.lineItems ?? [];
       const shippingShare = lines.length ? Math.round(cents(order.pricingSummary?.deliveryCost?.value) / lines.length) : 0;
       for (const line of lines) {
-        const inventoryId = line.legacyItemId ? `ebay:${line.legacyItemId}` : `sold:${line.lineItemId}`;
+        const inventoryId = line.legacyItemId
+          ? inventoryIdByEbayItemId.get(line.legacyItemId) ?? `ebay:${line.legacyItemId}`
+          : `sold:${line.lineItemId}`;
         const orderItemId = stableOrderItemId(order.orderId, line.legacyItemId, line.lineItemId);
 
         // Upgrade references created by a CSV import to the real eBay line-item ID.
@@ -370,12 +492,12 @@ export async function syncEbay(env: EbayEnv) {
     }
 
     await runStatements(db, statements);
-    const processed = active.length + orders.length + transactions.length;
+    const processed = active.length + scheduled.length + orders.length + transactions.length;
     await db.batch([
       db.prepare('UPDATE ebay_accounts SET last_synced_at = ?, updated_at = ? WHERE id = ?').bind(now, now, 'primary'),
       db.prepare('UPDATE sync_jobs SET status = ?, records_processed = ?, finished_at = ? WHERE id = ?').bind('completed', processed, now, jobId)
     ]);
-    return { listings: active.length, orders: orders.length, transactions: transactions.length };
+    return { listings: active.length, scheduled: scheduled.length, orders: orders.length, transactions: transactions.length };
   } catch (error) {
     await db.prepare('UPDATE sync_jobs SET status = ?, error_message = ?, finished_at = ? WHERE id = ?')
       .bind('failed', error instanceof Error ? error.message : 'Unknown sync error', new Date().toISOString(), jobId)
