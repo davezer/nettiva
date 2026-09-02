@@ -3,6 +3,12 @@ import { demoData } from '$lib/demo';
 import type { DashboardData, InventoryRow, SaleRow } from '$lib/types';
 
 type AccountRow = { lastSyncedAt: string | null };
+type WorkspaceRow = {
+  inventoryCount: number;
+  orderCount: number;
+  transactionCount: number;
+  unallocatedNetCents: number;
+};
 type InventoryDbRow = Omit<InventoryRow, 'ageDays'>;
 type SaleDbRow = {
   id: string;
@@ -22,7 +28,30 @@ export const load: PageServerLoad = async ({ platform }) => {
     const account = await db.prepare(
       'SELECT last_synced_at AS lastSyncedAt FROM ebay_accounts ORDER BY created_at LIMIT 1'
     ).first<AccountRow>();
-    if (!account) return demoData;
+
+    const workspace = await db.prepare(`
+      SELECT
+        (SELECT COUNT(*) FROM inventory_items) AS inventoryCount,
+        (SELECT COUNT(*) FROM orders) AS orderCount,
+        (SELECT COUNT(*) FROM financial_transactions) AS transactionCount,
+        COALESCE((
+          SELECT SUM(amount_cents)
+          FROM financial_transactions
+          WHERE ebay_order_id IS NULL
+            AND category IN (
+              'selling_fee', 'shipping_label', 'refund', 'dispute',
+              'other_fee', 'adjustment', 'withheld_tax', 'purchase'
+            )
+        ), 0) AS unallocatedNetCents
+    `).first<WorkspaceRow>();
+
+    const hasWorkspaceData = Boolean(
+      (workspace?.inventoryCount ?? 0) ||
+      (workspace?.orderCount ?? 0) ||
+      (workspace?.transactionCount ?? 0)
+    );
+
+    if (!account && !hasWorkspaceData) return demoData;
 
     const [inventoryResult, salesResult] = await db.batch([
       db.prepare(`
@@ -41,7 +70,17 @@ export const load: PageServerLoad = async ({ platform }) => {
           oi.sale_price_cents AS salePriceCents,
           oi.shipping_charged_cents AS shippingChargedCents,
           COALESCE(i.purchase_cost_cents, 0) AS cogsCents,
-          ABS(COALESCE(SUM(CASE WHEN ft.amount_cents < 0 THEN ft.amount_cents ELSE 0 END), 0)) AS costsAndFeesCents
+          ABS(COALESCE(SUM(
+            CASE
+              WHEN ft.amount_cents < 0
+                AND ft.category IN (
+                  'selling_fee', 'shipping_label', 'refund', 'dispute',
+                  'other_fee', 'adjustment', 'withheld_tax', 'purchase'
+                )
+              THEN ft.amount_cents
+              ELSE 0
+            END
+          ), 0)) AS costsAndFeesCents
         FROM order_items oi
         LEFT JOIN inventory_items i ON i.id = oi.inventory_item_id
         LEFT JOIN financial_transactions ft ON ft.ebay_line_item_id = oi.ebay_line_item_id
@@ -69,12 +108,17 @@ export const load: PageServerLoad = async ({ platform }) => {
       };
     });
 
+    const hasFinancialTransactions = (workspace?.transactionCount ?? 0) > 0;
+
     const data: DashboardData = {
       isDemo: false,
-      connected: true,
-      lastSyncedAt: account.lastSyncedAt,
+      connected: Boolean(account),
+      hasImportedData: hasWorkspaceData,
+      financialsComplete: hasFinancialTransactions,
+      lastSyncedAt: account?.lastSyncedAt ?? null,
       inventory,
-      sales
+      sales,
+      unallocatedNetCents: Number(workspace?.unallocatedNetCents ?? 0)
     };
     return data;
   } catch (error) {

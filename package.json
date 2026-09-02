@@ -8,7 +8,17 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "cf:types": "wrangler types"
+    "cf:types": "wrangler types",
+    "cf:login": "wrangler login",
+    "cf:create-db": "wrangler d1 create nettiva --binding DB --update-config",
+    "cf:migrate": "wrangler d1 migrations apply nettiva --remote",
+    "cf:secret:username": "wrangler secret put NETTIVA_USERNAME",
+    "cf:secret:password": "wrangler secret put NETTIVA_PASSWORD",
+    "cf:secret:ebay-client-id": "wrangler secret put EBAY_CLIENT_ID",
+    "cf:secret:ebay-client-secret": "wrangler secret put EBAY_CLIENT_SECRET",
+    "cf:secret:ebay-redirect-uri": "wrangler secret put EBAY_REDIRECT_URI",
+    "cf:secret:token-key": "wrangler secret put EBAY_TOKEN_ENCRYPTION_KEY",
+    "deploy": "npm run check && npm run build && wrangler deploy"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260902.1",

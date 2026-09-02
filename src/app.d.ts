@@ -10,6 +10,8 @@ declare global {
         EBAY_CLIENT_SECRET?: string;
         EBAY_REDIRECT_URI?: string;
         EBAY_TOKEN_ENCRYPTION_KEY?: string;
+        NETTIVA_USERNAME?: string;
+        NETTIVA_PASSWORD?: string;
       };
       context: ExecutionContext;
       caches: CacheStorage;

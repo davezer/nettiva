@@ -3,8 +3,8 @@
   import {
     AlertTriangle, Archive, ArrowUpRight, BadgeDollarSign, BarChart3, Boxes,
     Check, ChevronRight, CircleDollarSign, Clock3, Cloud, ExternalLink,
-    LayoutDashboard, LoaderCircle, MapPin, PackageCheck, PlugZap, RefreshCw,
-    Search, Settings, ShoppingBag, Tag, TrendingUp, X
+    FileSpreadsheet, LayoutDashboard, LoaderCircle, MapPin, PackageCheck, PlugZap,
+    RefreshCw, Search, Settings, ShoppingBag, Tag, TrendingUp, Upload, X
   } from '@lucide/svelte';
   import type { DashboardData, InventoryRow } from '$lib/types';
   import { money, shortDate } from '$lib/money';
@@ -24,17 +24,28 @@
   let location = $state('');
   let saveMessage = $state<string | null>(null);
   let saving = $state(false);
+  let importFile = $state<File | null>(null);
+  let importing = $state(false);
+  let importMessage = $state<string | null>(null);
+  let importPreview = $state<{
+    filename: string;
+    type: 'active-listings' | 'orders';
+    rowsSeen: number;
+    validRows: number;
+    skippedRows: number;
+    warnings: string[];
+  } | null>(null);
 
   const navItems = [
     { view: 'dashboard' as const, label: 'Overview', icon: LayoutDashboard },
     { view: 'inventory' as const, label: 'Inventory', icon: Boxes },
     { view: 'sales' as const, label: 'Sales', icon: BadgeDollarSign },
-    { view: 'settings' as const, label: 'eBay connection', icon: Settings }
+    { view: 'settings' as const, label: 'Data & eBay', icon: Settings }
   ];
 
   const metrics = $derived.by(() => {
     const gross = data.sales.reduce((sum, sale) => sum + sale.salePriceCents + sale.shippingChargedCents, 0);
-    const profit = data.sales.reduce((sum, sale) => sum + sale.netProfitCents, 0);
+    const profit = data.sales.reduce((sum, sale) => sum + sale.netProfitCents, 0) + (data.unallocatedNetCents ?? 0);
     const activeItems = data.inventory.filter((item) => item.status === 'active');
     const avgAge = activeItems.length
       ? Math.round(activeItems.reduce((sum, item) => sum + item.ageDays, 0) / activeItems.length)
@@ -101,6 +112,30 @@
       await invalidateAll();
     }
   }
+
+  async function importReport(mode: 'preview' | 'commit') {
+    if (!importFile) return;
+    importing = true;
+    importMessage = null;
+    const form = new FormData();
+    form.append('report', importFile);
+    const response = await fetch(`/api/import/csv?mode=${mode}`, { method: 'POST', body: form });
+    const result = await response.json().catch(() => null) as {
+      preview?: NonNullable<typeof importPreview>;
+      imported?: number;
+      error?: string;
+    } | null;
+    importing = false;
+    if (!response.ok || !result?.preview) {
+      importMessage = result?.error ?? 'Could not read this report.';
+      return;
+    }
+    importPreview = result.preview;
+    if (mode === 'commit') {
+      importMessage = `Imported ${result.imported ?? 0} ${result.preview.type === 'orders' ? 'order lines' : 'active listings'}.`;
+      await invalidateAll();
+    }
+  }
 </script>
 
 <div class="app-shell">
@@ -124,8 +159,8 @@
     <div class="sidebar-foot">
       <div class:online={data.connected} class="connection-dot"></div>
       <div>
-        <strong>{data.connected ? 'eBay connected' : 'Demo workspace'}</strong>
-        <small>{data.lastSyncedAt ? `Synced ${shortDate(data.lastSyncedAt)}` : 'Read-only mode'}</small>
+        <strong>{data.connected ? 'eBay connected' : data.hasImportedData ? 'CSV workspace' : 'Demo workspace'}</strong>
+        <small>{data.lastSyncedAt ? `Synced ${shortDate(data.lastSyncedAt)}` : data.hasImportedData ? 'Manual reports loaded' : 'Read-only mode'}</small>
       </div>
     </div>
   </aside>
@@ -137,7 +172,7 @@
         <h1>{navItems.find((item) => item.view === view)?.label}</h1>
       </div>
       <div class="top-actions">
-        {#if data.isDemo}<span class="demo-badge">Demo data</span>{/if}
+        {#if data.isDemo}<span class="demo-badge">Demo data</span>{:else if !data.financialsComplete}<span class="demo-badge">Fees pending</span>{/if}
         {#if data.connected}
           <button class="button secondary" onclick={syncNow} disabled={syncing}>
             {#if syncing}<LoaderCircle class="spin" size={17} />{:else}<RefreshCw size={17} />{/if}
@@ -153,7 +188,7 @@
       <div class="view-stack">
         <section class="metrics-grid" aria-label="Business summary">
           <article class="metric-card tone-green"><div class="metric-top"><span>Gross sales</span><CircleDollarSign size={18} /></div><strong>{money(metrics.gross)}</strong><p>{data.sales.length} orders in view</p></article>
-          <article class="metric-card tone-blue"><div class="metric-top"><span>Net profit</span><TrendingUp size={18} /></div><strong>{money(metrics.profit)}</strong><p>{percent(metrics.margin)} true margin</p></article>
+          <article class="metric-card tone-blue"><div class="metric-top"><span>{data.financialsComplete ? 'Net profit' : 'Estimated profit'}</span><TrendingUp size={18} /></div><strong>{money(metrics.profit)}</strong><p>{data.financialsComplete ? `${percent(metrics.margin)} true margin` : 'Before eBay seller fees'}</p></article>
           <article class="metric-card tone-violet"><div class="metric-top"><span>Active inventory</span><ShoppingBag size={18} /></div><strong>{metrics.active}</strong><p>{money(activeValue)} listed</p></article>
           <article class="metric-card tone-amber"><div class="metric-top"><span>Average age</span><Clock3 size={18} /></div><strong>{metrics.avgAge} days</strong><p>{stale ? `${stale} stale listing${stale === 1 ? '' : 's'}` : 'Inventory is moving'}</p></article>
         </section>
@@ -196,8 +231,8 @@
       </section>
     {:else if view === 'sales'}
       <section class="panel sales-panel">
-        <div class="panel-heading table-heading"><div><span class="kicker">RECONCILED ORDERS</span><h2>True profit</h2></div><span class="read-only"><Check size={14} /> eBay fees included</span></div>
-        <div class="table-wrap"><table><thead><tr><th>Item</th><th>Sold</th><th class="num">Gross</th><th class="num">Fees</th><th class="num">COGS</th><th class="num">Profit</th><th class="num">Margin</th><th class="num">ROI</th></tr></thead><tbody>
+        <div class="panel-heading table-heading"><div><span class="kicker">{data.financialsComplete ? 'RECONCILED ORDERS' : 'CSV ORDERS'}</span><h2>{data.financialsComplete ? 'True profit' : 'Estimated profit'}</h2></div><span class:data-warning={!data.financialsComplete} class="read-only">{#if data.financialsComplete}<Check size={14} /> eBay fees included{:else}<AlertTriangle size={14} /> eBay fees pending{/if}</span></div>
+        <div class="table-wrap"><table><thead><tr><th>Item</th><th>Sold</th><th class="num">Gross</th><th class="num">Fees + ship</th><th class="num">COGS</th><th class="num">Profit</th><th class="num">Margin</th><th class="num">ROI</th></tr></thead><tbody>
           {#each data.sales as sale}
             <tr><td class="title-cell"><strong>{sale.title}</strong><small>Order line {sale.id}</small></td><td>{shortDate(sale.soldAt)}</td><td class="num">{money(sale.salePriceCents + sale.shippingChargedCents)}</td><td class="num negative">−{money(sale.costsAndFeesCents)}</td><td class="num negative">−{money(sale.cogsCents)}</td><td class="num profit">{money(sale.netProfitCents)}</td><td class="num">{percent(sale.margin)}</td><td class="num">{sale.roi == null ? '—' : percent(sale.roi)}</td></tr>
           {/each}
@@ -209,10 +244,34 @@
           <div class:connected={data.connected} class="connection-hero"><PlugZap size={30} /><span>{data.connected ? 'CONNECTED' : 'NOT CONNECTED'}</span></div>
           <h2>{data.connected ? 'Your eBay store is linked' : 'Bring in your eBay business'}</h2>
           <p>{data.connected ? 'Listings, recent orders, and financial transactions can sync into your private workspace.' : 'Connect with eBay OAuth. Nettiva never sees or stores your eBay password.'}</p>
-          {#if data.connected}<button class="button primary" onclick={syncNow} disabled={syncing}><RefreshCw size={17} /> Sync listings & sales</button>{:else}<a class="button primary" href="/api/ebay/connect"><ExternalLink size={17} /> Connect eBay securely</a>{/if}
+          {#if data.connected}<button class="button primary" onclick={syncNow} disabled={syncing}><RefreshCw size={17} /> Sync listings & sales</button>{:else}<a class="button primary" href="/api/ebay/connect"><ExternalLink size={17} /> Connect eBay securely</a>
+          <a class="button secondary" href="/import">Import eBay CSV</a>{/if}
           <small>{data.lastSyncedAt ? `Last successful sync: ${new Date(data.lastSyncedAt).toLocaleString()}` : 'No production sync has run yet.'}</small>
         </article>
         <article class="panel setup-checklist"><span class="kicker">MVP SAFETY RAILS</span><h2>Read-only by design</h2><ul><li><Check /> Imports active listings</li><li><Check /> Imports recent completed orders</li><li><Check /> Imports actual eBay financial transactions</li><li><Check /> Saves cost, source, and bin location</li><li><Check /> Never edits a live eBay listing</li></ul><div class="setup-note"><BarChart3 /><span><strong>Next unlock</strong>Once the numbers reconcile, automation and repricing can sit safely on top.</span></div></article>
+        <article class="panel import-card">
+          <div class="import-heading"><span class="import-icon"><FileSpreadsheet size={23} /></span><div><span class="kicker">NO API REQUIRED</span><h2>Import an eBay CSV report</h2><p>Load an Orders or All Active Listings report while developer approval is pending.</p></div></div>
+          <div class="import-controls">
+            <label class="import-drop">
+              <Upload size={19} />
+              <span>{importFile?.name ?? 'Choose an eBay CSV report'}</span>
+              <input type="file" accept=".csv,text/csv" onchange={(event) => {
+                importFile = event.currentTarget.files?.[0] ?? null;
+                importPreview = null;
+                importMessage = null;
+              }} />
+            </label>
+            <button class="button secondary" disabled={!importFile || importing} onclick={() => importReport('preview')}>{#if importing}<LoaderCircle class="spin" size={17} />{:else}<FileSpreadsheet size={17} />{/if} Preview</button>
+          </div>
+          {#if importPreview}
+            <div class="import-summary">
+              <div class="import-stats"><span><strong>{importPreview.validRows}</strong> ready</span><span><strong>{importPreview.skippedRows}</strong> skipped</span><span><strong>{importPreview.type === 'orders' ? 'Orders' : 'Active listings'}</strong> detected</span></div>
+              {#each importPreview.warnings as warning}<p class="import-warning"><AlertTriangle size={15} />{warning}</p>{/each}
+              <button class="button primary" disabled={importing} onclick={() => importReport('commit')}>{#if importing}<LoaderCircle class="spin" size={17} />{:else}<Upload size={17} />{/if} Import {importPreview.validRows} rows</button>
+            </div>
+          {/if}
+          {#if importMessage}<p class="import-message">{importMessage}</p>{/if}
+        </article>
       </section>
     {/if}
   </main>

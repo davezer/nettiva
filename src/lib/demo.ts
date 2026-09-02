@@ -21,7 +21,10 @@ const sales: SaleRow[] = [
 export const demoData: DashboardData = {
   isDemo: true,
   connected: false,
+  hasImportedData: false,
+  financialsComplete: true,
   lastSyncedAt: null,
   inventory,
-  sales
+  sales,
+  unallocatedNetCents: 0,
 };

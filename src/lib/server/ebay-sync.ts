@@ -1,4 +1,11 @@
 import { getAccessToken } from './ebay-auth';
+import {
+  categoryFromApi,
+  csvLineItemRef,
+  signedApiAmountCents,
+  slug,
+  stableOrderItemId
+} from './finance-normalize';
 
 type EbayEnv = App.Platform['env'];
 type Money = { value?: string; currency?: string };
@@ -7,16 +14,39 @@ type ActiveListing = {
   priceCents: number; quantity: number; listedAt: string | null;
   viewItemUrl: string | null; conditionName: string | null;
 };
-type EbayLineItem = { lineItemId: string; legacyItemId?: string; title?: string; quantity?: number; lineItemCost?: Money };
+type EbayLineItem = {
+  lineItemId: string;
+  legacyItemId?: string;
+  title?: string;
+  quantity?: number;
+  lineItemCost?: Money;
+};
 type EbayOrder = {
-  orderId: string; creationDate?: string; lastModifiedDate?: string;
-  orderPaymentStatus?: string; total?: Money; pricingSummary?: { deliveryCost?: Money };
+  orderId: string;
+  creationDate?: string;
+  lastModifiedDate?: string;
+  orderPaymentStatus?: string;
+  total?: Money;
+  pricingSummary?: { deliveryCost?: Money };
   lineItems?: EbayLineItem[];
 };
+type FinanceFee = { feeType?: string; amount?: Money };
+type FinanceOrderLine = {
+  lineItemId?: string;
+  fees?: FinanceFee[];
+  totalFeeAmount?: Money;
+};
 type FinanceTransaction = {
-  transactionId: string; transactionType?: string; transactionDate?: string;
-  amount?: Money; orderId?: string; feeType?: string;
-  orderLineItems?: { lineItemId?: string }[];
+  transactionId: string;
+  transactionType?: string;
+  transactionDate?: string;
+  amount?: Money;
+  bookingEntry?: string;
+  orderId?: string;
+  feeType?: string;
+  payoutId?: string;
+  transactionMemo?: string;
+  orderLineItems?: FinanceOrderLine[];
 };
 
 const cents = (value?: string) => Math.round(Number(value ?? 0) * 100);
@@ -168,6 +198,22 @@ export async function syncEbay(env: EbayEnv) {
       const shippingShare = lines.length ? Math.round(cents(order.pricingSummary?.deliveryCost?.value) / lines.length) : 0;
       for (const line of lines) {
         const inventoryId = line.legacyItemId ? `ebay:${line.legacyItemId}` : `sold:${line.lineItemId}`;
+        const orderItemId = stableOrderItemId(order.orderId, line.legacyItemId, line.lineItemId);
+
+        // Upgrade references created by a CSV import to the real eBay line-item ID.
+        if (line.legacyItemId) {
+          statements.push(db.prepare(`
+            UPDATE financial_transactions
+            SET ebay_line_item_id = ?, updated_at = ?
+            WHERE ebay_order_id = ? AND ebay_line_item_id = ?
+          `).bind(
+            line.lineItemId,
+            now,
+            order.orderId,
+            csvLineItemRef(order.orderId, line.legacyItemId, line.lineItemId)
+          ));
+        }
+
         statements.push(db.prepare(`
           INSERT INTO inventory_items (id, title, ebay_item_id, status, updated_at)
           VALUES (?, ?, ?, 'sold', ?)
@@ -176,22 +222,151 @@ export async function syncEbay(env: EbayEnv) {
         statements.push(db.prepare(`
           INSERT INTO order_items (id, order_id, inventory_item_id, ebay_line_item_id, ebay_item_id, title, quantity, sale_price_cents, shipping_charged_cents, sold_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(id) DO UPDATE SET title = excluded.title,
+          ON CONFLICT(id) DO UPDATE SET
+            inventory_item_id = excluded.inventory_item_id,
+            ebay_line_item_id = excluded.ebay_line_item_id,
+            title = excluded.title,
             sale_price_cents = excluded.sale_price_cents,
             shipping_charged_cents = excluded.shipping_charged_cents,
             updated_at = excluded.updated_at
-        `).bind(`ebay:${line.lineItemId}`, `ebay:${order.orderId}`, inventoryId, line.lineItemId, line.legacyItemId ?? null, line.title ?? 'Untitled eBay item', line.quantity ?? 1, cents(line.lineItemCost?.value), shippingShare, soldAt, now));
+        `).bind(
+          orderItemId,
+          `ebay:${order.orderId}`,
+          inventoryId,
+          line.lineItemId,
+          line.legacyItemId ?? null,
+          line.title ?? 'Untitled eBay item',
+          line.quantity ?? 1,
+          cents(line.lineItemCost?.value),
+          shippingShare,
+          soldAt,
+          now
+        ));
       }
     }
 
     for (const transaction of transactions) {
+      const category = categoryFromApi(transaction.transactionType, transaction.feeType);
+      const amountCents = signedApiAmountCents(transaction.amount?.value, transaction.bookingEntry, category);
+      const lineItemId = transaction.orderLineItems?.[0]?.lineItemId ?? null;
+
+      // When API data arrives after a CSV bootstrap, prefer the API copy.
+      if (category === 'shipping_label' && transaction.orderId) {
+        statements.push(db.prepare(`
+          DELETE FROM financial_transactions
+          WHERE id IN (
+            SELECT id FROM financial_transactions
+            WHERE source = 'ebay_csv'
+              AND category = 'shipping_label'
+              AND ebay_order_id = ?
+              AND amount_cents = ?
+            LIMIT 1
+          )
+        `).bind(transaction.orderId, amountCents));
+      }
+
+      if (category === 'payout' && transaction.payoutId) {
+        statements.push(db.prepare(`
+          DELETE FROM financial_transactions
+          WHERE source = 'ebay_csv'
+            AND category = 'payout'
+            AND payout_id = ?
+        `).bind(transaction.payoutId));
+      }
+
+      if (category === 'sale') {
+        statements.push(db.prepare(`
+          DELETE FROM financial_transactions
+          WHERE source = 'ebay_csv'
+            AND category = 'selling_fee'
+            AND reference_id = ?
+        `).bind(transaction.transactionId));
+      }
+
       statements.push(db.prepare(`
-        INSERT INTO financial_transactions (id, ebay_transaction_id, ebay_order_id, ebay_line_item_id, transaction_type, amount_cents, currency, transaction_date, fee_type, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET amount_cents = excluded.amount_cents,
-          transaction_type = excluded.transaction_type, fee_type = excluded.fee_type,
+        INSERT INTO financial_transactions (
+          id, ebay_transaction_id, ebay_order_id, ebay_line_item_id,
+          transaction_type, amount_cents, currency, transaction_date, fee_type,
+          booking_entry, category, source, description, payout_id, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ebay_api', ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          ebay_order_id = excluded.ebay_order_id,
+          ebay_line_item_id = COALESCE(excluded.ebay_line_item_id, financial_transactions.ebay_line_item_id),
+          amount_cents = excluded.amount_cents,
+          currency = excluded.currency,
+          transaction_date = excluded.transaction_date,
+          transaction_type = excluded.transaction_type,
+          fee_type = excluded.fee_type,
+          booking_entry = excluded.booking_entry,
+          category = excluded.category,
+          source = 'ebay_api',
+          description = excluded.description,
+          payout_id = excluded.payout_id,
           updated_at = excluded.updated_at
-      `).bind(`ebay:${transaction.transactionId}`, transaction.transactionId, transaction.orderId ?? null, transaction.orderLineItems?.[0]?.lineItemId ?? null, transaction.transactionType ?? 'UNKNOWN', cents(transaction.amount?.value), transaction.amount?.currency ?? 'USD', transaction.transactionDate ?? now, transaction.feeType ?? null, now));
+      `).bind(
+        `finance:${transaction.transactionId}`,
+        transaction.transactionId,
+        transaction.orderId ?? null,
+        lineItemId,
+        transaction.transactionType ?? 'UNKNOWN',
+        amountCents,
+        transaction.amount?.currency ?? 'USD',
+        transaction.transactionDate ?? now,
+        transaction.feeType ?? null,
+        transaction.bookingEntry ?? (amountCents < 0 ? 'DEBIT' : 'CREDIT'),
+        category,
+        transaction.transactionMemo ?? null,
+        transaction.payoutId ?? null,
+        now
+      ));
+
+      // SALE transaction amount is net of selling fees. Store fee detail as
+      // separate debits so dashboard profit starts from gross order value.
+      if (category === 'sale') {
+        for (const [lineIndex, financeLine] of (transaction.orderLineItems ?? []).entries()) {
+          for (const [feeIndex, fee] of (financeLine.fees ?? []).entries()) {
+            const feeAmountCents = -Math.abs(cents(fee.amount?.value));
+            if (!feeAmountCents) continue;
+
+            const feeType = fee.feeType ?? `fee-${feeIndex + 1}`;
+            const feeExternalId = `${transaction.transactionId}:fee:${financeLine.lineItemId ?? lineIndex}:${slug(feeType)}:${feeIndex}`;
+
+            statements.push(db.prepare(`
+              INSERT INTO financial_transactions (
+                id, ebay_transaction_id, ebay_order_id, ebay_line_item_id,
+                transaction_type, amount_cents, currency, transaction_date, fee_type,
+                booking_entry, category, source, description, reference_id, updated_at
+              )
+              VALUES (?, ?, ?, ?, 'SELLING_FEE', ?, ?, ?, ?, 'DEBIT',
+                'selling_fee', 'ebay_api', ?, ?, ?)
+              ON CONFLICT(id) DO UPDATE SET
+                ebay_order_id = excluded.ebay_order_id,
+                ebay_line_item_id = excluded.ebay_line_item_id,
+                amount_cents = excluded.amount_cents,
+                currency = excluded.currency,
+                transaction_date = excluded.transaction_date,
+                fee_type = excluded.fee_type,
+                source = 'ebay_api',
+                description = excluded.description,
+                reference_id = excluded.reference_id,
+                updated_at = excluded.updated_at
+            `).bind(
+              `finance:${feeExternalId}`,
+              feeExternalId,
+              transaction.orderId ?? null,
+              financeLine.lineItemId ?? lineItemId,
+              feeAmountCents,
+              fee.amount?.currency ?? transaction.amount?.currency ?? 'USD',
+              transaction.transactionDate ?? now,
+              feeType,
+              feeType,
+              transaction.transactionId,
+              now
+            ));
+          }
+        }
+      }
     }
 
     await runStatements(db, statements);

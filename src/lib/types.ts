@@ -29,7 +29,10 @@ export type SaleRow = {
 export type DashboardData = {
   isDemo: boolean;
   connected: boolean;
+  hasImportedData: boolean;
+  financialsComplete: boolean;
   lastSyncedAt: string | null;
+  unallocatedNetCents: number;
   inventory: InventoryRow[];
   sales: SaleRow[];
 };
