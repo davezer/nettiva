@@ -6,7 +6,7 @@ type WorkspacePatch = { name?: unknown };
 
 export const PATCH: RequestHandler = async ({ platform, request, locals }) => {
   if (!platform) return json({ error: 'Cloudflare runtime is unavailable.' }, { status: 503 });
-  if (!['owner', 'admin'].includes(locals.workspaceRole)) {
+  if (!locals.workspaceRole || !['owner', 'admin'].includes(locals.workspaceRole)) {
     return json({ error: 'You do not have permission to edit this workspace.' }, { status: 403 });
   }
 

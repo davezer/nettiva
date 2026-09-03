@@ -122,6 +122,7 @@ export type SaleRow = {
 };
 
 export type DashboardData = {
+  currentUser: { name: string; email: string } | null;
   workspace: WorkspaceSummary;
   isDemo: boolean;
   connected: boolean;

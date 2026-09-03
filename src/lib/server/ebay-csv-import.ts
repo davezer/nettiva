@@ -6,6 +6,7 @@ import {
   stableOrderItemId,
   type FinanceCategory
 } from './finance-normalize';
+import { DEFAULT_WORKSPACE_ID, workspaceEntityId } from './workspace';
 
 type CsvRecord = Record<string, string>;
 
@@ -166,7 +167,8 @@ async function runStatements(db: D1Database, statements: D1PreparedStatement[]) 
 export async function importEbayTransactionCsv(
   db: D1Database,
   text: string,
-  filename: string | null
+  filename: string | null,
+  workspaceId: string = DEFAULT_WORKSPACE_ID
 ): Promise<CsvImportResult> {
   const rows = reportRows(text);
   const batchId = crypto.randomUUID();
@@ -183,9 +185,11 @@ export async function importEbayTransactionCsv(
   let unallocatedTransactions = 0;
 
   await db.prepare(`
-    INSERT INTO import_batches (id, source, filename, rows_seen, imported_at)
-    VALUES (?, 'ebay_csv', ?, ?, ?)
-  `).bind(batchId, filename, rows.length, now).run();
+    INSERT INTO import_batches (
+      workspace_id, id, source, filename, rows_seen, imported_at
+    )
+    VALUES (?, ?, 'ebay_csv', ?, ?, ?)
+  `).bind(workspaceId, batchId, filename, rows.length, now).run();
 
   // First pass: establish deterministic order-line references so label/refund rows
   // can attach to a sale even when they occur before the order row in the report.
@@ -224,28 +228,37 @@ export async function importEbayTransactionCsv(
     if (!externalTransactionId) {
       externalTransactionId = `csv:${await shortHash(transactionSeed(row))}`;
     }
-    const financeId = `finance:${externalTransactionId}`;
+    const financeId = workspaceEntityId(workspaceId, `finance:${externalTransactionId}`);
 
     if (category === 'sale' && orderId) {
       const inventoryId = itemId
-        ? `ebay:${itemId}`
-        : `sold:csv:${await shortHash(`${orderId}:${transactionId ?? index}:${title}`)}`;
-      const orderItemId = stableOrderItemId(orderId, itemId, transactionId ?? String(index));
+        ? workspaceEntityId(workspaceId, `ebay:${itemId}`)
+        : workspaceEntityId(
+            workspaceId,
+            `sold:csv:${await shortHash(`${orderId}:${transactionId ?? index}:${title}`)}`
+          );
+      const orderItemId = workspaceEntityId(
+        workspaceId,
+        stableOrderItemId(orderId, itemId, transactionId ?? String(index))
+      );
+      const orderDbId = workspaceEntityId(workspaceId, `ebay:${orderId}`);
       const csvRef = csvLineItemRef(orderId, itemId, transactionId ?? String(index));
       const quantity = Math.max(1, Number(clean(row['Quantity']) ?? 1) || 1);
 
       statements.push(db.prepare(`
         INSERT INTO orders (
-          id, ebay_order_id, created_at_ebay, status, gross_total_cents, currency, updated_at
+          workspace_id, id, ebay_order_id, created_at_ebay, status,
+          gross_total_cents, currency, updated_at
         )
-        VALUES (?, ?, ?, 'PAID', ?, ?, ?)
+        VALUES (?, ?, ?, ?, 'PAID', ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           created_at_ebay = excluded.created_at_ebay,
           gross_total_cents = excluded.gross_total_cents,
           currency = excluded.currency,
           updated_at = excluded.updated_at
       `).bind(
-        `ebay:${orderId}`,
+        workspaceId,
+        orderDbId,
         orderId,
         soldAt,
         grossAmountCents || itemSubtotalCents + shippingChargedCents,
@@ -255,22 +268,22 @@ export async function importEbayTransactionCsv(
 
       statements.push(db.prepare(`
         INSERT INTO inventory_items (
-          id, title, sku, ebay_item_id, status, updated_at
+          workspace_id, id, title, sku, ebay_item_id, status, updated_at
         )
-        VALUES (?, ?, ?, ?, 'sold', ?)
+        VALUES (?, ?, ?, ?, ?, 'sold', ?)
         ON CONFLICT(id) DO UPDATE SET
           title = excluded.title,
           sku = COALESCE(excluded.sku, inventory_items.sku),
           status = 'sold',
           updated_at = excluded.updated_at
-      `).bind(inventoryId, title, customLabel, itemId, now));
+      `).bind(workspaceId, inventoryId, title, customLabel, itemId, now));
 
       statements.push(db.prepare(`
         INSERT INTO order_items (
-          id, order_id, inventory_item_id, ebay_line_item_id, ebay_item_id,
+          workspace_id, id, order_id, inventory_item_id, ebay_line_item_id, ebay_item_id,
           title, quantity, sale_price_cents, shipping_charged_cents, sold_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           inventory_item_id = excluded.inventory_item_id,
           title = excluded.title,
@@ -280,8 +293,9 @@ export async function importEbayTransactionCsv(
           sold_at = excluded.sold_at,
           updated_at = excluded.updated_at
       `).bind(
+        workspaceId,
         orderItemId,
-        `ebay:${orderId}`,
+        orderDbId,
         inventoryId,
         csvRef,
         itemId,
@@ -298,13 +312,13 @@ export async function importEbayTransactionCsv(
 
     statements.push(db.prepare(`
       INSERT INTO financial_transactions (
-        id, ebay_transaction_id, ebay_order_id, ebay_line_item_id,
+        workspace_id, id, ebay_transaction_id, ebay_order_id, ebay_line_item_id,
         transaction_type, amount_cents, currency, transaction_date, fee_type,
         booking_entry, category, source, description, payout_id, reference_id,
         gross_amount_cents, item_subtotal_cents, shipping_charged_cents,
         ebay_collected_tax_cents, import_batch_id, updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ebay_csv', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ebay_csv', ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         ebay_order_id = excluded.ebay_order_id,
         ebay_line_item_id = COALESCE(excluded.ebay_line_item_id, financial_transactions.ebay_line_item_id),
@@ -324,6 +338,7 @@ export async function importEbayTransactionCsv(
         import_batch_id = excluded.import_batch_id,
         updated_at = excluded.updated_at
     `).bind(
+      workspaceId,
       financeId,
       externalTransactionId,
       orderId,
@@ -365,12 +380,12 @@ export async function importEbayTransactionCsv(
 
         statements.push(db.prepare(`
           INSERT INTO financial_transactions (
-            id, ebay_transaction_id, ebay_order_id, ebay_line_item_id,
+            workspace_id, id, ebay_transaction_id, ebay_order_id, ebay_line_item_id,
             transaction_type, amount_cents, currency, transaction_date, fee_type,
             booking_entry, category, source, description, reference_id,
             import_batch_id, updated_at
           )
-          VALUES (?, ?, ?, ?, 'SELLING_FEE', ?, ?, ?, ?, 'DEBIT',
+          VALUES (?, ?, ?, ?, ?, 'SELLING_FEE', ?, ?, ?, ?, 'DEBIT',
             'selling_fee', 'ebay_csv', ?, ?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET
             ebay_order_id = excluded.ebay_order_id,
@@ -384,7 +399,8 @@ export async function importEbayTransactionCsv(
             import_batch_id = excluded.import_batch_id,
             updated_at = excluded.updated_at
         `).bind(
-          `finance:${feeExternalId}`,
+          workspaceId,
+          workspaceEntityId(workspaceId, `finance:${feeExternalId}`),
           feeExternalId,
           orderId,
           lineRef,
@@ -409,8 +425,14 @@ export async function importEbayTransactionCsv(
   await db.prepare(`
     UPDATE import_batches
     SET rows_imported = ?, orders_imported = ?, transactions_imported = ?
-    WHERE id = ?
-  `).bind(rowsImported, ordersImported, transactionsImported, batchId).run();
+    WHERE id = ? AND workspace_id = ?
+  `).bind(
+    rowsImported,
+    ordersImported,
+    transactionsImported,
+    batchId,
+    workspaceId
+  ).run();
 
   return {
     batchId,
@@ -427,20 +449,21 @@ export async function importEbayTransactionCsv(
 
 /**
  * Backwards-compatible alias for Nettiva's earlier CSV endpoint.
- *
- * The old /api/import/csv route imports `importEbayCsv`. Keep that route
- * compiling while the new transaction report importer becomes canonical.
- * This shim accepts the common legacy call shapes and delegates whenever
- * raw CSV text is available.
+ * Prefer `importEbayTransactionCsv` for all new code.
  */
 export async function importEbayCsv(...args: any[]): Promise<any> {
-  const db = args.find((value) => value && typeof value === 'object' && typeof value.prepare === 'function') as D1Database | undefined;
+  const db = args.find(
+    (value) => value && typeof value === 'object' && typeof value.prepare === 'function'
+  ) as D1Database | undefined;
 
-  const stringArg = args.find((value) => typeof value === 'string') as string | undefined;
-  const objectArg = args.find((value) => value && typeof value === 'object' && typeof value.prepare !== 'function') as Record<string, unknown> | undefined;
+  const objectArg = args.find(
+    (value) => value && typeof value === 'object' && typeof value.prepare !== 'function'
+  ) as Record<string, unknown> | undefined;
 
-  const text =
-    stringArg ??
+  const possibleStrings = args.filter((value) => typeof value === 'string') as string[];
+  const text = possibleStrings.find(
+    (value) => value.includes('Transaction creation date') || value.includes('Transaction ID')
+  ) ??
     (typeof objectArg?.text === 'string' ? objectArg.text : undefined) ??
     (typeof objectArg?.csvText === 'string' ? objectArg.csvText : undefined) ??
     (typeof objectArg?.rawCsv === 'string' ? objectArg.rawCsv : undefined) ??
@@ -450,9 +473,12 @@ export async function importEbayCsv(...args: any[]): Promise<any> {
     (typeof objectArg?.filename === 'string' ? objectArg.filename : null) ??
     (typeof objectArg?.fileName === 'string' ? objectArg.fileName : null);
 
-  if (!db) {
-    throw new Error('CSV import database binding is missing.');
-  }
+  const workspaceId =
+    (typeof objectArg?.workspaceId === 'string' ? objectArg.workspaceId : null) ??
+    possibleStrings.find((value) => value === DEFAULT_WORKSPACE_ID || value.startsWith('workspace:')) ??
+    DEFAULT_WORKSPACE_ID;
+
+  if (!db) throw new Error('CSV import database binding is missing.');
 
   if (!text) {
     throw new Error(
@@ -460,5 +486,5 @@ export async function importEbayCsv(...args: any[]): Promise<any> {
     );
   }
 
-  return importEbayTransactionCsv(db, text, filename);
+  return importEbayTransactionCsv(db, text, filename, workspaceId);
 }

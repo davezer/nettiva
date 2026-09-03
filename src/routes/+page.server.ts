@@ -1,3 +1,4 @@
+import { error as httpError } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { demoData } from '$lib/demo';
 import { currentWorkspaceId, getWorkspaceContext } from '$lib/server/workspace';
@@ -138,8 +139,8 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
             )
             THEN ft.amount_cents ELSE 0 END), 0) AS pnlAdjustmentsCents
         FROM order_items oi
-        JOIN orders o ON o.id = oi.order_id
-        LEFT JOIN inventory_items i ON i.id = oi.inventory_item_id
+        JOIN orders o ON o.id = oi.order_id AND o.workspace_id = oi.workspace_id
+        LEFT JOIN inventory_items i ON i.id = oi.inventory_item_id AND i.workspace_id = oi.workspace_id
         LEFT JOIN financial_transactions ft
           ON ft.workspace_id = ?
           AND (
@@ -239,6 +240,12 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
     }));
 
     const data: DashboardData = {
+      currentUser: locals.authUserId
+        ? {
+            name: locals.authName ?? locals.authEmail ?? 'Nettiva user',
+            email: locals.authEmail ?? ''
+          }
+        : null,
       workspace: workspaceContext,
       isDemo: false,
       connected: Boolean(account),
@@ -256,6 +263,6 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
     return data;
   } catch (error) {
     console.error('Nettiva dashboard load failed', error);
-    return demoData;
+    httpError(500, 'Could not load this Nettiva workspace.');
   }
 };

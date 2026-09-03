@@ -1,26 +1,56 @@
 import { redirect } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { encryptToken, exchangeAuthorizationCode, getEbayConfig } from '$lib/server/ebay-auth';
+import {
+  encryptToken,
+  exchangeAuthorizationCode,
+  getEbayConfig
+} from '$lib/server/ebay-auth';
+import { currentWorkspaceId, workspaceEntityId } from '$lib/server/workspace';
 
-export const GET: RequestHandler = async ({ platform, cookies, url }) => {
+export const GET: RequestHandler = async ({ platform, cookies, url, locals }) => {
   if (!platform) redirect(303, '/?ebay=runtime-error');
+
+  const workspaceId = currentWorkspaceId(locals);
   const code = url.searchParams.get('code');
   const state = url.searchParams.get('state');
   const expectedState = cookies.get('ebay_oauth_state');
-  if (!code || !state || !expectedState || state !== expectedState) redirect(303, '/?ebay=state-error');
+  const expectedWorkspace = cookies.get('ebay_oauth_workspace');
+
+  if (
+    !code ||
+    !state ||
+    !expectedState ||
+    state !== expectedState ||
+    !expectedWorkspace ||
+    expectedWorkspace !== workspaceId
+  ) {
+    redirect(303, '/?ebay=state-error');
+  }
 
   try {
     const config = getEbayConfig(platform.env);
     const token = await exchangeAuthorizationCode(platform.env, code);
     if (!token.refresh_token) throw new Error('eBay did not return a refresh token.');
+
     const now = new Date().toISOString();
     const accessEncrypted = await encryptToken(token.access_token, config.encryptionKey);
     const refreshEncrypted = await encryptToken(token.refresh_token, config.encryptionKey);
+
+    const existing = await platform.env.DB.prepare(`
+      SELECT id
+      FROM ebay_accounts
+      WHERE workspace_id = ?
+      LIMIT 1
+    `).bind(workspaceId).first<{ id: string }>();
+
+    const accountId = existing?.id ?? workspaceEntityId(workspaceId, 'primary');
+
     await platform.env.DB.prepare(`
       INSERT INTO ebay_accounts (
-        id, access_token_encrypted, refresh_token_encrypted,
+        id, workspace_id, access_token_encrypted, refresh_token_encrypted,
         access_token_expires_at, refresh_token_expires_at, scopes, created_at, updated_at
-      ) VALUES ('primary', ?, ?, ?, ?, ?, ?, ?)
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         access_token_encrypted = excluded.access_token_encrypted,
         refresh_token_encrypted = excluded.refresh_token_encrypted,
@@ -29,17 +59,25 @@ export const GET: RequestHandler = async ({ platform, cookies, url }) => {
         scopes = excluded.scopes,
         updated_at = excluded.updated_at
     `).bind(
+      accountId,
+      workspaceId,
       accessEncrypted,
       refreshEncrypted,
       Date.now() + token.expires_in * 1000,
-      token.refresh_token_expires_in ? Date.now() + token.refresh_token_expires_in * 1000 : null,
+      token.refresh_token_expires_in
+        ? Date.now() + token.refresh_token_expires_in * 1000
+        : null,
       token.scope,
       now,
       now
     ).run();
+
     cookies.delete('ebay_oauth_state', { path: '/' });
-  } catch {
+    cookies.delete('ebay_oauth_workspace', { path: '/' });
+  } catch (error) {
+    console.error('eBay connect failed', error);
     redirect(303, '/?ebay=connect-error');
   }
+
   redirect(303, '/?ebay=connected');
 };

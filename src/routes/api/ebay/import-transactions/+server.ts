@@ -1,13 +1,15 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { importEbayTransactionCsv } from '$lib/server/ebay-csv-import';
+import { currentWorkspaceId } from '$lib/server/workspace';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
-export const POST: RequestHandler = async ({ request, platform }) => {
+export const POST: RequestHandler = async ({ request, platform, locals }) => {
   const db = platform?.env.DB;
   if (!db) return json({ error: 'Database binding is unavailable.' }, { status: 500 });
 
+  const workspaceId = currentWorkspaceId(locals);
   const form = await request.formData();
   const uploaded = form.get('file');
 
@@ -24,7 +26,12 @@ export const POST: RequestHandler = async ({ request, platform }) => {
   }
 
   try {
-    const result = await importEbayTransactionCsv(db, await uploaded.text(), uploaded.name);
+    const result = await importEbayTransactionCsv(
+      db,
+      await uploaded.text(),
+      uploaded.name,
+      workspaceId
+    );
     return json(result);
   } catch (error) {
     console.error('eBay CSV import failed', error);

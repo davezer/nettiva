@@ -7,7 +7,7 @@ import {
   stableOrderItemId
 } from './finance-normalize';
 import { categoryFromSku, parseSku } from './sku-control';
-import { DEFAULT_WORKSPACE_ID } from './workspace';
+import { workspaceEntityId } from './workspace';
 
 type EbayEnv = App.Platform['env'];
 type Money = { value?: string; currency?: string };
@@ -170,14 +170,18 @@ async function runStatements(db: D1Database, statements: D1PreparedStatement[]) 
   }
 }
 
-export async function syncEbay(env: EbayEnv) {
+export async function syncEbay(env: EbayEnv, workspaceId: string) {
   const db = env.DB;
   const jobId = crypto.randomUUID();
   const startedAt = new Date().toISOString();
-  await db.prepare('INSERT INTO sync_jobs (workspace_id, id, status, started_at) VALUES (?, ?, ?, ?)').bind(DEFAULT_WORKSPACE_ID, jobId, 'running', startedAt).run();
+
+  await db.prepare(`
+    INSERT INTO sync_jobs (workspace_id, id, status, started_at)
+    VALUES (?, ?, 'running', ?)
+  `).bind(workspaceId, jobId, startedAt).run();
 
   try {
-    const accessToken = await getAccessToken(env);
+    const accessToken = await getAccessToken(env, workspaceId);
     const [active, scheduled, orders, transactions] = await Promise.all([
       fetchSellingListings(accessToken, 'ActiveList', 'active'),
       fetchSellingListings(accessToken, 'ScheduledList', 'scheduled'),
@@ -186,8 +190,6 @@ export async function syncEbay(env: EbayEnv) {
     ]);
     const now = new Date().toISOString();
 
-    // Reconcile Nettiva intake records before creating new eBay inventory rows.
-    // A unique manual SKU/custom label is the safest automatic match.
     const inventoryLookup = await db.prepare(`
       SELECT
         id,
@@ -196,9 +198,11 @@ export async function syncEbay(env: EbayEnv) {
         status
       FROM inventory_items
       WHERE workspace_id = ?
-        AND (ebay_item_id IS NOT NULL
-          OR (sku IS NOT NULL AND TRIM(sku) <> ''))
-    `).bind(DEFAULT_WORKSPACE_ID).all<InventoryLookupRow>();
+        AND (
+          ebay_item_id IS NOT NULL
+          OR (sku IS NOT NULL AND TRIM(sku) <> '')
+        )
+    `).bind(workspaceId).all<InventoryLookupRow>();
 
     const inventoryIdByEbayItemId = new Map<string, string>();
     const manualIdsBySku = new Map<string, string[]>();
@@ -219,8 +223,7 @@ export async function syncEbay(env: EbayEnv) {
       if (ids.length === 1) uniqueManualIdBySku.set(key, ids[0]);
     }
 
-    // A manual SKU match is only safe if eBay is also using that SKU on exactly one
-    // currently active/scheduled listing. Duplicate eBay SKUs are never auto-merged.
+    // Duplicate custom labels on eBay are never auto-merged to a manual intake row.
     const sellingSkuCounts = new Map<string, number>();
     for (const item of [...scheduled, ...active]) {
       const key = skuKey(item.sku);
@@ -229,24 +232,26 @@ export async function syncEbay(env: EbayEnv) {
 
     const statements: D1PreparedStatement[] = [];
 
-    // Scheduled first, active second. Active wins if eBay briefly returns an item in both states.
+    // Scheduled first, active second. Active wins during brief transition overlap.
     for (const item of [...scheduled, ...active]) {
       const key = skuKey(item.sku);
       const inventoryId =
         inventoryIdByEbayItemId.get(item.itemId) ??
         (key && sellingSkuCounts.get(key) === 1 ? uniqueManualIdBySku.get(key) : undefined) ??
-        `ebay:${item.itemId}`;
+        workspaceEntityId(workspaceId, `ebay:${item.itemId}`);
 
       inventoryIdByEbayItemId.set(item.itemId, inventoryId);
+
       const inventoryCategory = categoryFromSku(item.sku);
       const listingStatus = item.state;
+      const listingId = workspaceEntityId(workspaceId, `ebay:${item.itemId}`);
 
       statements.push(db.prepare(`
         INSERT INTO inventory_items (
-          id, title, sku, ebay_item_id, condition_name, image_url,
+          workspace_id, id, title, sku, ebay_item_id, condition_name, image_url,
           inventory_category, status, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           title = excluded.title,
           sku = excluded.sku,
@@ -259,14 +264,25 @@ export async function syncEbay(env: EbayEnv) {
           END,
           status = excluded.status,
           updated_at = excluded.updated_at
-      `).bind(inventoryId, item.title, item.sku, item.itemId, item.conditionName, item.imageUrl, inventoryCategory, listingStatus, now));
+      `).bind(
+        workspaceId,
+        inventoryId,
+        item.title,
+        item.sku,
+        item.itemId,
+        item.conditionName,
+        item.imageUrl,
+        inventoryCategory,
+        listingStatus,
+        now
+      ));
 
       statements.push(db.prepare(`
         INSERT INTO listings (
-          id, inventory_item_id, ebay_listing_id, price_cents, quantity,
+          workspace_id, id, inventory_item_id, ebay_listing_id, price_cents, quantity,
           listed_at, status, view_item_url, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           inventory_item_id = excluded.inventory_item_id,
           price_cents = excluded.price_cents,
@@ -275,11 +291,24 @@ export async function syncEbay(env: EbayEnv) {
           status = excluded.status,
           view_item_url = excluded.view_item_url,
           updated_at = excluded.updated_at
-      `).bind(`ebay:${item.itemId}`, inventoryId, item.itemId, item.priceCents, item.quantity, item.listedAt, listingStatus, item.viewItemUrl, now));
+      `).bind(
+        workspaceId,
+        listingId,
+        inventoryId,
+        item.itemId,
+        item.priceCents,
+        item.quantity,
+        item.listedAt,
+        listingStatus,
+        item.viewItemUrl,
+        now
+      ));
 
       const parsedSku = parseSku(item.sku);
       if (parsedSku) {
-        const reservationSource = item.state === 'scheduled' ? 'ebay_scheduled' : 'ebay_active';
+        const reservationSource =
+          item.state === 'scheduled' ? 'ebay_scheduled' : 'ebay_active';
+
         statements.push(db.prepare(`
           INSERT INTO sku_reservations (
             id, workspace_id, sku, prefix, sequence_number, source, status,
@@ -296,8 +325,8 @@ export async function syncEbay(env: EbayEnv) {
             inventory_item_id = excluded.inventory_item_id,
             updated_at = excluded.updated_at
         `).bind(
-          `ebay-sku:${item.itemId}`,
-          DEFAULT_WORKSPACE_ID,
+          workspaceEntityId(workspaceId, `ebay-sku:${item.itemId}`),
+          workspaceId,
           parsedSku.sku,
           parsedSku.prefix,
           parsedSku.sequence,
@@ -315,50 +344,91 @@ export async function syncEbay(env: EbayEnv) {
           ON CONFLICT(workspace_id, prefix) DO UPDATE SET
             last_number = MAX(sku_sequences.last_number, excluded.last_number),
             updated_at = excluded.updated_at
-        `).bind(DEFAULT_WORKSPACE_ID, parsedSku.prefix, parsedSku.sequence, now));
+        `).bind(workspaceId, parsedSku.prefix, parsedSku.sequence, now));
       }
     }
 
     for (const order of orders) {
       const soldAt = order.creationDate ?? order.lastModifiedDate ?? now;
+      const orderDbId = workspaceEntityId(workspaceId, `ebay:${order.orderId}`);
+
       statements.push(db.prepare(`
-        INSERT INTO orders (id, ebay_order_id, created_at_ebay, status, gross_total_cents, currency, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET status = excluded.status,
-          gross_total_cents = excluded.gross_total_cents, updated_at = excluded.updated_at
-      `).bind(`ebay:${order.orderId}`, order.orderId, soldAt, order.orderPaymentStatus ?? 'UNKNOWN', cents(order.total?.value), order.total?.currency ?? 'USD', now));
+        INSERT INTO orders (
+          workspace_id, id, ebay_order_id, created_at_ebay, status,
+          gross_total_cents, currency, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          status = excluded.status,
+          gross_total_cents = excluded.gross_total_cents,
+          updated_at = excluded.updated_at
+      `).bind(
+        workspaceId,
+        orderDbId,
+        order.orderId,
+        soldAt,
+        order.orderPaymentStatus ?? 'UNKNOWN',
+        cents(order.total?.value),
+        order.total?.currency ?? 'USD',
+        now
+      ));
 
       const lines = order.lineItems ?? [];
-      const shippingShare = lines.length ? Math.round(cents(order.pricingSummary?.deliveryCost?.value) / lines.length) : 0;
+      const shippingShare = lines.length
+        ? Math.round(cents(order.pricingSummary?.deliveryCost?.value) / lines.length)
+        : 0;
+
       for (const line of lines) {
         const inventoryId = line.legacyItemId
-          ? inventoryIdByEbayItemId.get(line.legacyItemId) ?? `ebay:${line.legacyItemId}`
-          : `sold:${line.lineItemId}`;
-        const orderItemId = stableOrderItemId(order.orderId, line.legacyItemId, line.lineItemId);
+          ? inventoryIdByEbayItemId.get(line.legacyItemId) ??
+            workspaceEntityId(workspaceId, `ebay:${line.legacyItemId}`)
+          : workspaceEntityId(workspaceId, `sold:${line.lineItemId}`);
 
-        // Upgrade references created by a CSV import to the real eBay line-item ID.
+        const orderItemId = workspaceEntityId(
+          workspaceId,
+          stableOrderItemId(order.orderId, line.legacyItemId, line.lineItemId)
+        );
+
         if (line.legacyItemId) {
           statements.push(db.prepare(`
             UPDATE financial_transactions
             SET ebay_line_item_id = ?, updated_at = ?
-            WHERE workspace_id = ? AND ebay_order_id = ? AND ebay_line_item_id = ?
+            WHERE workspace_id = ?
+              AND ebay_order_id = ?
+              AND ebay_line_item_id = ?
           `).bind(
             line.lineItemId,
             now,
-            DEFAULT_WORKSPACE_ID,
+            workspaceId,
             order.orderId,
             csvLineItemRef(order.orderId, line.legacyItemId, line.lineItemId)
           ));
         }
 
         statements.push(db.prepare(`
-          INSERT INTO inventory_items (id, title, ebay_item_id, status, updated_at)
-          VALUES (?, ?, ?, 'sold', ?)
-          ON CONFLICT(id) DO UPDATE SET title = excluded.title, status = 'sold', updated_at = excluded.updated_at
-        `).bind(inventoryId, line.title ?? 'Untitled eBay item', line.legacyItemId ?? null, now));
+          INSERT INTO inventory_items (
+            workspace_id, id, title, ebay_item_id, status, updated_at
+          )
+          VALUES (?, ?, ?, ?, 'sold', ?)
+          ON CONFLICT(id) DO UPDATE SET
+            title = excluded.title,
+            status = 'sold',
+            updated_at = excluded.updated_at
+        `).bind(
+          workspaceId,
+          inventoryId,
+          line.title ?? 'Untitled eBay item',
+          line.legacyItemId ?? null,
+          now
+        ));
+
         statements.push(db.prepare(`
-          INSERT INTO order_items (id, order_id, inventory_item_id, ebay_line_item_id, ebay_item_id, title, quantity, sale_price_cents, shipping_charged_cents, sold_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO order_items (
+            workspace_id, id, order_id, inventory_item_id, ebay_line_item_id,
+            ebay_item_id, title, quantity, sale_price_cents,
+            shipping_charged_cents, sold_at, updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET
             inventory_item_id = excluded.inventory_item_id,
             ebay_line_item_id = excluded.ebay_line_item_id,
@@ -367,8 +437,9 @@ export async function syncEbay(env: EbayEnv) {
             shipping_charged_cents = excluded.shipping_charged_cents,
             updated_at = excluded.updated_at
         `).bind(
+          workspaceId,
           orderItemId,
-          `ebay:${order.orderId}`,
+          orderDbId,
           inventoryId,
           line.lineItemId,
           line.legacyItemId ?? null,
@@ -384,52 +455,67 @@ export async function syncEbay(env: EbayEnv) {
 
     for (const transaction of transactions) {
       const category = categoryFromApi(transaction.transactionType, transaction.feeType);
-      const amountCents = signedApiAmountCents(transaction.amount?.value, transaction.bookingEntry, category);
+      const amountCents = signedApiAmountCents(
+        transaction.amount?.value,
+        transaction.bookingEntry,
+        category
+      );
       const lineItemId = transaction.orderLineItems?.[0]?.lineItemId ?? null;
 
-      // When API data arrives after a CSV bootstrap, prefer the API copy.
       if (category === 'shipping_label' && transaction.orderId) {
         statements.push(db.prepare(`
           DELETE FROM financial_transactions
           WHERE id IN (
-            SELECT id FROM financial_transactions
-            WHERE source = 'ebay_csv'
+            SELECT id
+            FROM financial_transactions
+            WHERE workspace_id = ?
+              AND source = 'ebay_csv'
               AND category = 'shipping_label'
               AND ebay_order_id = ?
               AND amount_cents = ?
             LIMIT 1
           )
-        `).bind(transaction.orderId, amountCents));
+        `).bind(workspaceId, transaction.orderId, amountCents));
       }
 
       if (category === 'payout' && transaction.payoutId) {
         statements.push(db.prepare(`
           DELETE FROM financial_transactions
-          WHERE source = 'ebay_csv'
+          WHERE workspace_id = ?
+            AND source = 'ebay_csv'
             AND category = 'payout'
             AND payout_id = ?
-        `).bind(transaction.payoutId));
+        `).bind(workspaceId, transaction.payoutId));
       }
 
       if (category === 'sale') {
         statements.push(db.prepare(`
           DELETE FROM financial_transactions
-          WHERE source = 'ebay_csv'
+          WHERE workspace_id = ?
+            AND source = 'ebay_csv'
             AND category = 'selling_fee'
             AND reference_id = ?
-        `).bind(transaction.transactionId));
+        `).bind(workspaceId, transaction.transactionId));
       }
+
+      const financeId = workspaceEntityId(
+        workspaceId,
+        `finance:${transaction.transactionId}`
+      );
 
       statements.push(db.prepare(`
         INSERT INTO financial_transactions (
-          id, ebay_transaction_id, ebay_order_id, ebay_line_item_id,
+          workspace_id, id, ebay_transaction_id, ebay_order_id, ebay_line_item_id,
           transaction_type, amount_cents, currency, transaction_date, fee_type,
           booking_entry, category, source, description, payout_id, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ebay_api', ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ebay_api', ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           ebay_order_id = excluded.ebay_order_id,
-          ebay_line_item_id = COALESCE(excluded.ebay_line_item_id, financial_transactions.ebay_line_item_id),
+          ebay_line_item_id = COALESCE(
+            excluded.ebay_line_item_id,
+            financial_transactions.ebay_line_item_id
+          ),
           amount_cents = excluded.amount_cents,
           currency = excluded.currency,
           transaction_date = excluded.transaction_date,
@@ -442,7 +528,8 @@ export async function syncEbay(env: EbayEnv) {
           payout_id = excluded.payout_id,
           updated_at = excluded.updated_at
       `).bind(
-        `finance:${transaction.transactionId}`,
+        workspaceId,
+        financeId,
         transaction.transactionId,
         transaction.orderId ?? null,
         lineItemId,
@@ -458,8 +545,6 @@ export async function syncEbay(env: EbayEnv) {
         now
       ));
 
-      // SALE transaction amount is net of selling fees. Store fee detail as
-      // separate debits so dashboard profit starts from gross order value.
       if (category === 'sale') {
         for (const [lineIndex, financeLine] of (transaction.orderLineItems ?? []).entries()) {
           for (const [feeIndex, fee] of (financeLine.fees ?? []).entries()) {
@@ -467,15 +552,17 @@ export async function syncEbay(env: EbayEnv) {
             if (!feeAmountCents) continue;
 
             const feeType = fee.feeType ?? `fee-${feeIndex + 1}`;
-            const feeExternalId = `${transaction.transactionId}:fee:${financeLine.lineItemId ?? lineIndex}:${slug(feeType)}:${feeIndex}`;
+            const feeExternalId =
+              `${transaction.transactionId}:fee:` +
+              `${financeLine.lineItemId ?? lineIndex}:${slug(feeType)}:${feeIndex}`;
 
             statements.push(db.prepare(`
               INSERT INTO financial_transactions (
-                id, ebay_transaction_id, ebay_order_id, ebay_line_item_id,
+                workspace_id, id, ebay_transaction_id, ebay_order_id, ebay_line_item_id,
                 transaction_type, amount_cents, currency, transaction_date, fee_type,
                 booking_entry, category, source, description, reference_id, updated_at
               )
-              VALUES (?, ?, ?, ?, 'SELLING_FEE', ?, ?, ?, ?, 'DEBIT',
+              VALUES (?, ?, ?, ?, ?, 'SELLING_FEE', ?, ?, ?, ?, 'DEBIT',
                 'selling_fee', 'ebay_api', ?, ?, ?)
               ON CONFLICT(id) DO UPDATE SET
                 ebay_order_id = excluded.ebay_order_id,
@@ -489,7 +576,8 @@ export async function syncEbay(env: EbayEnv) {
                 reference_id = excluded.reference_id,
                 updated_at = excluded.updated_at
             `).bind(
-              `finance:${feeExternalId}`,
+              workspaceId,
+              workspaceEntityId(workspaceId, `finance:${feeExternalId}`),
               feeExternalId,
               transaction.orderId ?? null,
               financeLine.lineItemId ?? lineItemId,
@@ -507,16 +595,41 @@ export async function syncEbay(env: EbayEnv) {
     }
 
     await runStatements(db, statements);
-    const processed = active.length + scheduled.length + orders.length + transactions.length;
+
+    const processed =
+      active.length + scheduled.length + orders.length + transactions.length;
+
     await db.batch([
-      db.prepare('UPDATE ebay_accounts SET last_synced_at = ?, updated_at = ? WHERE id = ?').bind(now, now, 'primary'),
-      db.prepare('UPDATE sync_jobs SET status = ?, records_processed = ?, finished_at = ? WHERE id = ? AND workspace_id = ?').bind('completed', processed, now, jobId, DEFAULT_WORKSPACE_ID)
+      db.prepare(`
+        UPDATE ebay_accounts
+        SET last_synced_at = ?, updated_at = ?
+        WHERE workspace_id = ?
+      `).bind(now, now, workspaceId),
+      db.prepare(`
+        UPDATE sync_jobs
+        SET status = 'completed', records_processed = ?, finished_at = ?
+        WHERE id = ? AND workspace_id = ?
+      `).bind(processed, now, jobId, workspaceId)
     ]);
-    return { listings: active.length, scheduled: scheduled.length, orders: orders.length, transactions: transactions.length };
+
+    return {
+      listings: active.length,
+      scheduled: scheduled.length,
+      orders: orders.length,
+      transactions: transactions.length
+    };
   } catch (error) {
-    await db.prepare('UPDATE sync_jobs SET status = ?, error_message = ?, finished_at = ? WHERE id = ? AND workspace_id = ?')
-      .bind('failed', error instanceof Error ? error.message : 'Unknown sync error', new Date().toISOString(), jobId)
-      .run();
+    await db.prepare(`
+      UPDATE sync_jobs
+      SET status = 'failed', error_message = ?, finished_at = ?
+      WHERE id = ? AND workspace_id = ?
+    `).bind(
+      error instanceof Error ? error.message : 'Unknown sync error',
+      new Date().toISOString(),
+      jobId,
+      workspaceId
+    ).run();
+
     throw error;
   }
 }

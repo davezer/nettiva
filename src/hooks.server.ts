@@ -1,63 +1,140 @@
 import type { Handle } from '@sveltejs/kit';
-import { dev } from '$app/environment';
-import { DEFAULT_USER_ID, DEFAULT_WORKSPACE_ID } from '$lib/server/workspace';
+import { building } from '$app/environment';
+import { svelteKitHandler } from 'better-auth/svelte-kit';
+import { createAuth } from '$lib/server/auth';
+import { resolveTenantForAuthUser } from '$lib/server/workspace';
 
-function challenge(message = 'Authentication required.') {
-  return new Response(message, {
-    status: 401,
-    headers: {
-      'cache-control': 'no-store',
-      'content-type': 'text/plain; charset=utf-8',
-      'www-authenticate': 'Basic realm="Nettiva", charset="UTF-8"'
-    }
-  });
+const PUBLIC_PATHS = new Set([
+  '/login',
+  '/favicon.ico',
+  '/robots.txt'
+]);
+
+function isAuthPath(pathname: string) {
+  return pathname === '/api/auth' || pathname.startsWith('/api/auth/');
 }
 
-function readBasicCredentials(header: string | null) {
-  if (!header?.startsWith('Basic ')) return null;
+function isPublicPath(pathname: string) {
+  return (
+    PUBLIC_PATHS.has(pathname) ||
+    pathname.startsWith('/_app/') ||
+    isAuthPath(pathname)
+  );
+}
 
-  try {
-    const decoded = atob(header.slice(6));
-    const separator = decoded.indexOf(':');
-    if (separator < 0) return null;
-
-    return {
-      username: decoded.slice(0, separator),
-      password: decoded.slice(separator + 1)
-    };
-  } catch {
-    return null;
-  }
+function unauthorizedApi() {
+  return Response.json(
+    { error: 'Authentication required.' },
+    { status: 401, headers: { 'cache-control': 'no-store' } }
+  );
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
-  // Accounts & Workspaces v1 deliberately keeps the existing auth gate.
-  // Real session auth will replace only this context assignment later.
-  event.locals.userId = DEFAULT_USER_ID;
-  event.locals.workspaceId = DEFAULT_WORKSPACE_ID;
-  event.locals.workspaceRole = 'owner';
+  event.locals.authUserId = null;
+  event.locals.authName = null;
+  event.locals.authEmail = null;
+  event.locals.userId = null;
+  event.locals.workspaceId = null;
+  event.locals.workspaceRole = null;
 
-  // `npm run dev` remains frictionless. Every deployed Worker request keeps
-  // the existing Basic Auth protection until consumer auth is introduced.
-  if (dev || !event.platform) return resolve(event);
+  if (building) return resolve(event);
 
-  const username = event.platform.env.NETTIVA_USERNAME;
-  const password = event.platform.env.NETTIVA_PASSWORD;
+  const pathname = event.url.pathname;
+  const publicPath = isPublicPath(pathname);
 
-  if (!username || !password) {
-    return new Response('Nettiva access credentials are not configured.', {
-      status: 503,
-      headers: {
-        'cache-control': 'no-store',
-        'content-type': 'text/plain; charset=utf-8'
-      }
+  if (!event.platform) {
+    if (publicPath) return resolve(event);
+
+    return new Response(
+      'Cloudflare runtime bindings are unavailable. Nettiva auth requires the local D1 runtime.',
+      { status: 503 }
+    );
+  }
+
+  const secret = event.platform.env.BETTER_AUTH_SECRET?.trim();
+  if (!secret) {
+    if (publicPath) return resolve(event);
+
+    return new Response(
+      'Nettiva auth is not configured. Add BETTER_AUTH_SECRET to .dev.vars.',
+      { status: 503 }
+    );
+  }
+
+  const auth = createAuth(event.platform.env, event.url.origin);
+
+  // Better Auth's official SvelteKit handler owns all /api/auth/* requests.
+  if (isAuthPath(pathname)) {
+    return svelteKitHandler({ event, resolve, auth, building });
+  }
+
+  let session: Awaited<ReturnType<typeof auth.api.getSession>> = null;
+
+  try {
+    session = await auth.api.getSession({
+      headers: event.request.headers
+    });
+  } catch (error) {
+    console.error('Nettiva session lookup failed', error);
+  }
+
+  if (!session) {
+    if (publicPath) {
+      return svelteKitHandler({ event, resolve, auth, building });
+    }
+
+    if (pathname.startsWith('/api/')) return unauthorizedApi();
+
+    const loginURL = new URL('/login', event.url);
+    const returnTo = `${pathname}${event.url.search}`;
+    if (returnTo !== '/') loginURL.searchParams.set('returnTo', returnTo);
+    return Response.redirect(loginURL, 303);
+  }
+
+  const tenant = await resolveTenantForAuthUser(
+    event.platform.env.DB,
+    {
+      id: session.user.id,
+      name: session.user.name,
+      email: session.user.email
+    },
+    event.cookies.get('nettiva_workspace')
+  );
+
+  if (!tenant) {
+    if (pathname.startsWith('/api/')) {
+      return Response.json(
+        { error: 'No active Nettiva workspace membership was found.' },
+        { status: 403 }
+      );
+    }
+
+    return new Response(
+      'No active Nettiva workspace membership was found.',
+      { status: 403 }
+    );
+  }
+
+  event.locals.authUserId = session.user.id;
+  event.locals.authName = session.user.name;
+  event.locals.authEmail = session.user.email;
+  event.locals.userId = tenant.userId;
+  event.locals.workspaceId = tenant.workspace.id;
+  event.locals.workspaceRole = tenant.workspace.role;
+
+  if (event.cookies.get('nettiva_workspace') !== tenant.workspace.id) {
+    event.cookies.set('nettiva_workspace', tenant.workspace.id, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: event.url.protocol === 'https:',
+      path: '/',
+      maxAge: 60 * 60 * 24 * 365
     });
   }
 
-  const supplied = readBasicCredentials(event.request.headers.get('authorization'));
-  if (!supplied || supplied.username !== username || supplied.password !== password) {
-    return challenge();
+  if (pathname === '/login') {
+    return Response.redirect(new URL('/', event.url), 303);
   }
 
-  return resolve(event);
+  return svelteKitHandler({ event, resolve, auth, building });
 };

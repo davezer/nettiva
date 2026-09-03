@@ -5,7 +5,7 @@
     CalendarDays, Calculator, Check, ChevronRight, CircleDollarSign, Clock3,
     Cloud, Download, ExternalLink, FileSpreadsheet, Info, LayoutDashboard, LoaderCircle,
     MapPin, PackageCheck, PlugZap, Printer, ReceiptText, RefreshCw, Search, Settings,
-    ShoppingBag, Tag, TrendingUp, WalletCards, X
+    ShoppingBag, ShieldCheck, Tag, TrendingUp, UserRound, WalletCards, X, LogOut
   } from '@lucide/svelte';
   import type {
     AccountingTransactionRow,
@@ -17,6 +17,7 @@
     SaleRow
   } from '$lib/types';
   import { money, shortDate } from '$lib/money';
+  import { authClient } from '$lib/auth-client';
 
   let { data }: { data: DashboardData } = $props();
 
@@ -923,6 +924,11 @@
     await invalidateAll();
   }
 
+  async function signOutOfNettiva() {
+    await authClient.signOut();
+    window.location.assign('/login');
+  }
+
   async function syncNow() {
     syncing = true;
     const response = await fetch('/api/ebay/sync', { method: 'POST' });
@@ -1458,6 +1464,25 @@
 
     {:else}
       <section class="connection-layout">
+        <article class="panel account-security-card">
+          <div class="account-security-head">
+            <span class="account-security-icon"><ShieldCheck size={21} /></span>
+            <div>
+              <span class="kicker">ACCOUNT & SECURITY</span>
+              <h2>Signed in securely</h2>
+            </div>
+          </div>
+          <div class="account-identity">
+            <span class="account-avatar"><UserRound size={20} /></span>
+            <div>
+              <strong>{data.currentUser?.name ?? 'Nettiva user'}</strong>
+              <small>{data.currentUser?.email ?? 'Authenticated session'}</small>
+            </div>
+            <button class="button secondary" type="button" onclick={signOutOfNettiva}><LogOut size={16} /> Sign out</button>
+          </div>
+          <p>Authentication proves who you are. Workspace membership decides which seller data you can access.</p>
+        </article>
+
         <article class="panel workspace-settings-card">
           <span class="kicker">WORKSPACE</span>
           <h2>Business identity</h2>
