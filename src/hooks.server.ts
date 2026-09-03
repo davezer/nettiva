@@ -1,5 +1,7 @@
 import type { Handle } from '@sveltejs/kit';
 import { dev } from '$app/environment';
+import { DEFAULT_USER_ID, DEFAULT_WORKSPACE_ID } from '$lib/server/workspace';
+
 function challenge(message = 'Authentication required.') {
   return new Response(message, {
     status: 401,
@@ -29,8 +31,14 @@ function readBasicCredentials(header: string | null) {
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
-  // `npm run dev` has no Cloudflare platform binding, so local development
-  // remains frictionless. Every deployed Worker request is protected.
+  // Accounts & Workspaces v1 deliberately keeps the existing auth gate.
+  // Real session auth will replace only this context assignment later.
+  event.locals.userId = DEFAULT_USER_ID;
+  event.locals.workspaceId = DEFAULT_WORKSPACE_ID;
+  event.locals.workspaceRole = 'owner';
+
+  // `npm run dev` remains frictionless. Every deployed Worker request keeps
+  // the existing Basic Auth protection until consumer auth is introduced.
   if (dev || !event.platform) return resolve(event);
 
   const username = event.platform.env.NETTIVA_USERNAME;

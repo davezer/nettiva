@@ -1,5 +1,6 @@
 import type { PageServerLoad } from './$types';
 import { demoData } from '$lib/demo';
+import { currentWorkspaceId, getWorkspaceContext } from '$lib/server/workspace';
 import type {
   AccountingTransactionRow,
   DashboardData,
@@ -38,24 +39,29 @@ type SaleDbRow = {
 };
 type TransactionDbRow = AccountingTransactionRow;
 
-export const load: PageServerLoad = async ({ platform }) => {
+export const load: PageServerLoad = async ({ platform, locals }) => {
   const db = platform?.env.DB;
   if (!db) return demoData;
 
   try {
+    const workspaceId = currentWorkspaceId(locals);
+    const workspaceContext = await getWorkspaceContext(db, locals);
+    if (!workspaceContext) throw new Error('Workspace context is unavailable.');
+
     const account = await db.prepare(
-      'SELECT last_synced_at AS lastSyncedAt FROM ebay_accounts ORDER BY created_at LIMIT 1'
-    ).first<AccountRow>();
+      'SELECT last_synced_at AS lastSyncedAt FROM ebay_accounts WHERE workspace_id = ? ORDER BY created_at LIMIT 1'
+    ).bind(workspaceId).first<AccountRow>();
 
     const workspace = await db.prepare(`
       SELECT
-        (SELECT COUNT(*) FROM inventory_items) AS inventoryCount,
-        (SELECT COUNT(*) FROM orders) AS orderCount,
-        (SELECT COUNT(*) FROM financial_transactions) AS transactionCount,
+        (SELECT COUNT(*) FROM inventory_items WHERE workspace_id = ?) AS inventoryCount,
+        (SELECT COUNT(*) FROM orders WHERE workspace_id = ?) AS orderCount,
+        (SELECT COUNT(*) FROM financial_transactions WHERE workspace_id = ?) AS transactionCount,
         (
           SELECT COUNT(*)
           FROM financial_transactions
-          WHERE source <> 'manual'
+          WHERE workspace_id = ?
+            AND source <> 'manual'
             AND category IN (
               'selling_fee', 'shipping_label', 'refund', 'dispute',
               'other_fee', 'adjustment', 'withheld_tax', 'purchase',
@@ -65,13 +71,14 @@ export const load: PageServerLoad = async ({ platform }) => {
         COALESCE((
           SELECT SUM(amount_cents)
           FROM financial_transactions
-          WHERE ebay_order_id IS NULL
+          WHERE workspace_id = ?
+            AND ebay_order_id IS NULL
             AND category IN (
               'selling_fee', 'shipping_label', 'refund', 'dispute',
               'other_fee', 'adjustment', 'withheld_tax', 'purchase'
             )
         ), 0) AS unallocatedNetCents
-    `).first<WorkspaceRow>();
+    `).bind(workspaceId, workspaceId, workspaceId, workspaceId, workspaceId).first<WorkspaceRow>();
 
     const hasWorkspaceData = Boolean(
       (workspace?.inventoryCount ?? 0) ||
@@ -79,7 +86,8 @@ export const load: PageServerLoad = async ({ platform }) => {
       (workspace?.transactionCount ?? 0)
     );
 
-    if (!account && !hasWorkspaceData) return demoData;
+    // A real workspace can be empty. Demo data is only used when no D1 runtime exists
+    // or a load genuinely fails. This is important for future new-customer onboarding.
 
     const [inventoryResult, salesResult, transactionResult, reservationResult, sequenceResult] = await db.batch([
       db.prepare(`
@@ -90,11 +98,12 @@ export const load: PageServerLoad = async ({ platform }) => {
           i.source, i.storage_location AS location, i.status,
           l.price_cents AS listPriceCents, l.listed_at AS listedAt
         FROM inventory_items i
-        LEFT JOIN listings l ON l.inventory_item_id = i.id AND l.status IN ('active', 'scheduled')
+        LEFT JOIN listings l ON l.inventory_item_id = i.id AND l.workspace_id = ? AND l.status IN ('active', 'scheduled')
+        WHERE i.workspace_id = ?
         ORDER BY CASE i.status WHEN 'active' THEN 0 WHEN 'scheduled' THEN 1 WHEN 'unlisted' THEN 2 ELSE 3 END,
           COALESCE(l.listed_at, i.created_at) DESC
         LIMIT 1000
-      `),
+      `).bind(workspaceId, workspaceId),
       db.prepare(`
         SELECT
           oi.id,
@@ -132,18 +141,20 @@ export const load: PageServerLoad = async ({ platform }) => {
         JOIN orders o ON o.id = oi.order_id
         LEFT JOIN inventory_items i ON i.id = oi.inventory_item_id
         LEFT JOIN financial_transactions ft
-          ON (
+          ON ft.workspace_id = ?
+          AND (
             ft.ebay_line_item_id = oi.ebay_line_item_id
             OR (
               ft.ebay_line_item_id IS NULL
               AND ft.ebay_order_id = o.ebay_order_id
-              AND (SELECT COUNT(*) FROM order_items oi2 WHERE oi2.order_id = o.id) = 1
+              AND (SELECT COUNT(*) FROM order_items oi2 WHERE oi2.workspace_id = ? AND oi2.order_id = o.id) = 1
             )
           )
+        WHERE oi.workspace_id = ?
         GROUP BY oi.id
         ORDER BY oi.sold_at DESC
         LIMIT 1000
-      `),
+      `).bind(workspaceId, workspaceId, workspaceId),
       db.prepare(`
         SELECT
           id,
@@ -162,21 +173,24 @@ export const load: PageServerLoad = async ({ platform }) => {
           expense_category AS expenseCategory,
           memo
         FROM financial_transactions
+        WHERE workspace_id = ?
         ORDER BY transaction_date DESC
         LIMIT 2500
-      `),
+      `).bind(workspaceId),
       db.prepare(`
         SELECT id, sku, prefix, sequence_number AS sequenceNumber, source, status, title,
           ebay_item_id AS ebayItemId, inventory_item_id AS inventoryItemId, reserved_at AS reservedAt
         FROM sku_reservations
+        WHERE workspace_id = ?
         ORDER BY sequence_number DESC, reserved_at DESC
         LIMIT 1000
-      `),
+      `).bind(workspaceId),
       db.prepare(`
         SELECT prefix, last_number AS lastNumber
         FROM sku_sequences
+        WHERE workspace_id = ?
         ORDER BY prefix
-      `)
+      `).bind(workspaceId)
     ]);
 
     const now = Date.now();
@@ -225,6 +239,7 @@ export const load: PageServerLoad = async ({ platform }) => {
     }));
 
     const data: DashboardData = {
+      workspace: workspaceContext,
       isDemo: false,
       connected: Boolean(account),
       hasImportedData: hasWorkspaceData,

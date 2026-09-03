@@ -1,13 +1,16 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { extractSkus, observeSku } from '$lib/server/sku-control';
+import { currentWorkspaceId } from '$lib/server/workspace';
 
 type ReservationInput = { text?: unknown };
 
-export const POST: RequestHandler = async ({ platform, request }) => {
+export const POST: RequestHandler = async ({ platform, request, locals }) => {
   if (!platform) {
     return json({ error: 'Cloudflare runtime is unavailable.' }, { status: 503 });
   }
+
+  const workspaceId = currentWorkspaceId(locals);
 
   try {
     const body = await request.json().catch(() => null) as ReservationInput | null;
@@ -26,15 +29,16 @@ export const POST: RequestHandler = async ({ platform, request }) => {
 
     for (const sku of parsed) {
       // Permanently advance the prefix even if this exact SKU already exists elsewhere.
-      await observeSku(platform.env.DB, sku.sku);
+      await observeSku(platform.env.DB, workspaceId, sku.sku);
 
       const inventory = await platform.env.DB.prepare(`
         SELECT id
         FROM inventory_items
-        WHERE sku IS NOT NULL
+        WHERE workspace_id = ?
+          AND sku IS NOT NULL
           AND LOWER(TRIM(sku)) = LOWER(TRIM(?))
         LIMIT 1
-      `).bind(sku.sku).first<{ id: string }>();
+      `).bind(workspaceId, sku.sku).first<{ id: string }>();
 
       if (inventory) {
         alreadyKnown += 1;
@@ -43,11 +47,12 @@ export const POST: RequestHandler = async ({ platform, request }) => {
 
       const result = await platform.env.DB.prepare(`
         INSERT OR IGNORE INTO sku_reservations (
-          id, sku, prefix, sequence_number, source, status, reserved_at, updated_at
+          id, workspace_id, sku, prefix, sequence_number, source, status, reserved_at, updated_at
         )
-        VALUES (?, ?, ?, ?, 'manual_bootstrap', 'reserved', ?, ?)
+        VALUES (?, ?, ?, ?, ?, 'manual_bootstrap', 'reserved', ?, ?)
       `).bind(
-        `reserve:${sku.sku.toLowerCase()}`,
+        `reserve:${workspaceId}:${sku.sku.toLowerCase()}`,
+        workspaceId,
         sku.sku,
         sku.prefix,
         sku.sequence,

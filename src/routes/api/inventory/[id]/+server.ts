@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import type { InventoryCategory } from '$lib/types';
 import { observeSku } from '$lib/server/sku-control';
+import { currentWorkspaceId } from '$lib/server/workspace';
 
 const INVENTORY_CATEGORIES = new Set<InventoryCategory>([
   'action_figures',
@@ -55,8 +56,10 @@ function normalizedPurchaseDate(value: unknown) {
   return `${trimmed}T12:00:00.000Z`;
 }
 
-export const PATCH: RequestHandler = async ({ platform, params, request }) => {
+export const PATCH: RequestHandler = async ({ platform, params, request, locals }) => {
   if (!platform) return json({ error: 'Cloudflare runtime is unavailable.' }, { status: 503 });
+
+  const workspaceId = currentWorkspaceId(locals);
 
   const existing = await platform.env.DB.prepare(`
     SELECT
@@ -70,8 +73,8 @@ export const PATCH: RequestHandler = async ({ platform, params, request }) => {
       ebay_item_id AS ebayItemId,
       status
     FROM inventory_items
-    WHERE id = ?
-  `).bind(params.id).first<InventoryDbRow>();
+    WHERE id = ? AND workspace_id = ?
+  `).bind(params.id, workspaceId).first<InventoryDbRow>();
 
   if (!existing) return json({ error: 'Inventory item not found.' }, { status: 404 });
 
@@ -120,20 +123,20 @@ export const PATCH: RequestHandler = async ({ platform, params, request }) => {
     const duplicate = await platform.env.DB.prepare(`
       SELECT sku FROM (
         SELECT sku FROM inventory_items
-        WHERE id <> ? AND sku IS NOT NULL AND LOWER(TRIM(sku)) = LOWER(TRIM(?))
+        WHERE workspace_id = ? AND id <> ? AND sku IS NOT NULL AND LOWER(TRIM(sku)) = LOWER(TRIM(?))
         UNION ALL
         SELECT sku FROM sku_reservations
-        WHERE LOWER(TRIM(sku)) = LOWER(TRIM(?))
+        WHERE workspace_id = ? AND LOWER(TRIM(sku)) = LOWER(TRIM(?))
           AND (inventory_item_id IS NULL OR inventory_item_id <> ?)
       )
       LIMIT 1
-    `).bind(params.id, sku, sku, params.id).first<{ sku: string }>();
+    `).bind(workspaceId, params.id, sku, workspaceId, sku, params.id).first<{ sku: string }>();
 
     if (duplicate) {
       return json({ error: 'That SKU/custom label is already used or reserved.' }, { status: 409 });
     }
 
-    await observeSku(platform.env.DB, sku);
+    await observeSku(platform.env.DB, workspaceId, sku);
   }
 
   await platform.env.DB.prepare(`
@@ -148,7 +151,7 @@ export const PATCH: RequestHandler = async ({ platform, params, request }) => {
       condition_name = ?,
       inventory_category = ?,
       updated_at = ?
-    WHERE id = ?
+    WHERE id = ? AND workspace_id = ?
   `).bind(
     title,
     sku,
@@ -159,28 +162,32 @@ export const PATCH: RequestHandler = async ({ platform, params, request }) => {
     conditionName,
     category,
     new Date().toISOString(),
-    params.id
+    params.id,
+    workspaceId
   ).run();
 
   return json({ ok: true, id: params.id });
 };
 
-export const DELETE: RequestHandler = async ({ platform, params }) => {
+export const DELETE: RequestHandler = async ({ platform, params, locals }) => {
   if (!platform) return json({ error: 'Cloudflare runtime is unavailable.' }, { status: 503 });
+
+  const workspaceId = currentWorkspaceId(locals);
 
   const result = await platform.env.DB.prepare(`
     DELETE FROM inventory_items
     WHERE id = ?
+      AND workspace_id = ?
       AND id LIKE 'manual:%'
       AND ebay_item_id IS NULL
       AND status = 'unlisted'
       AND NOT EXISTS (
-        SELECT 1 FROM listings WHERE listings.inventory_item_id = inventory_items.id
+        SELECT 1 FROM listings WHERE listings.workspace_id = ? AND listings.inventory_item_id = inventory_items.id
       )
       AND NOT EXISTS (
-        SELECT 1 FROM order_items WHERE order_items.inventory_item_id = inventory_items.id
+        SELECT 1 FROM order_items WHERE order_items.workspace_id = ? AND order_items.inventory_item_id = inventory_items.id
       )
-  `).bind(params.id).run();
+  `).bind(params.id, workspaceId, workspaceId, workspaceId).run();
 
   if (!result.meta.changes) {
     return json({

@@ -37,12 +37,15 @@ export function categoryFromSku(value?: string | null) {
   return 'other';
 }
 
-async function observedMax(db: D1Database, prefix: string) {
+async function observedMax(db: D1Database, workspaceId: string, prefix: string) {
   const rows = await db.prepare(`
-    SELECT sku FROM inventory_items WHERE sku IS NOT NULL AND UPPER(sku) LIKE ?
+    SELECT sku FROM inventory_items
+    WHERE workspace_id = ? AND sku IS NOT NULL AND UPPER(sku) LIKE ?
     UNION ALL
-    SELECT sku FROM sku_reservations WHERE UPPER(sku) LIKE ?
-  `).bind(`${prefix}-%`, `${prefix}-%`).all<{ sku: string }>();
+    SELECT sku FROM sku_reservations
+    WHERE workspace_id = ? AND UPPER(sku) LIKE ?
+  `).bind(workspaceId, `${prefix}-%`, workspaceId, `${prefix}-%`).all<{ sku: string }>();
+
   let max = 0;
   for (const row of rows.results) {
     const parsed = parseSku(row.sku);
@@ -51,53 +54,49 @@ async function observedMax(db: D1Database, prefix: string) {
   return max;
 }
 
-export async function observeSku(db: D1Database, sku: string) {
+export async function observeSku(db: D1Database, workspaceId: string, sku: string) {
   const parsed = parseSku(sku);
   if (!parsed) return null;
 
   const now = new Date().toISOString();
 
   await db.prepare(`
-    INSERT OR IGNORE INTO sku_sequences (prefix, last_number, updated_at)
-    VALUES (?, 0, ?)
-  `).bind(parsed.prefix, now).run();
+    INSERT OR IGNORE INTO sku_sequences (workspace_id, prefix, last_number, updated_at)
+    VALUES (?, ?, 0, ?)
+  `).bind(workspaceId, parsed.prefix, now).run();
 
   await db.prepare(`
     UPDATE sku_sequences
     SET
-      last_number = CASE
-        WHEN last_number < ? THEN ?
-        ELSE last_number
-      END,
+      last_number = CASE WHEN last_number < ? THEN ? ELSE last_number END,
       updated_at = ?
-    WHERE prefix = ?
-  `).bind(
-    parsed.sequence,
-    parsed.sequence,
-    now,
-    parsed.prefix
-  ).run();
+    WHERE workspace_id = ? AND prefix = ?
+  `).bind(parsed.sequence, parsed.sequence, now, workspaceId, parsed.prefix).run();
 
   return parsed;
 }
 
-export async function allocateSkuRange(db: D1Database, prefixValue: string, quantity: number) {
+export async function allocateSkuRange(
+  db: D1Database,
+  workspaceId: string,
+  prefixValue: string,
+  quantity: number
+) {
   const prefix = prefixValue.trim().toUpperCase();
 
   if (!/^[A-Z0-9]{2,8}$/.test(prefix)) {
     throw new Error('Auto SKU prefix must be 2–8 letters or numbers.');
   }
-
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > 50) {
     throw new Error('Quantity must be between 1 and 50.');
   }
 
-  const knownMax = await observedMax(db, prefix);
+  const knownMax = await observedMax(db, workspaceId, prefix);
   const existing = await db.prepare(`
     SELECT last_number AS lastNumber
     FROM sku_sequences
-    WHERE prefix = ?
-  `).bind(prefix).first<{ lastNumber: number }>();
+    WHERE workspace_id = ? AND prefix = ?
+  `).bind(workspaceId, prefix).first<{ lastNumber: number }>();
 
   const current = Math.max(Number(existing?.lastNumber ?? 0), knownMax);
   const first = current + 1;
@@ -105,40 +104,40 @@ export async function allocateSkuRange(db: D1Database, prefixValue: string, quan
   const now = new Date().toISOString();
 
   await db.prepare(`
-    INSERT OR IGNORE INTO sku_sequences (prefix, last_number, updated_at)
-    VALUES (?, 0, ?)
-  `).bind(prefix, now).run();
+    INSERT OR IGNORE INTO sku_sequences (workspace_id, prefix, last_number, updated_at)
+    VALUES (?, ?, 0, ?)
+  `).bind(workspaceId, prefix, now).run();
 
   await db.prepare(`
     UPDATE sku_sequences
     SET last_number = ?, updated_at = ?
-    WHERE prefix = ?
-      AND last_number <= ?
-  `).bind(last, now, prefix, current).run();
+    WHERE workspace_id = ? AND prefix = ? AND last_number <= ?
+  `).bind(last, now, workspaceId, prefix, current).run();
 
   const verified = await db.prepare(`
     SELECT last_number AS lastNumber
     FROM sku_sequences
-    WHERE prefix = ?
-  `).bind(prefix).first<{ lastNumber: number }>();
+    WHERE workspace_id = ? AND prefix = ?
+  `).bind(workspaceId, prefix).first<{ lastNumber: number }>();
 
   if (Number(verified?.lastNumber ?? 0) !== last) {
-    // Another request advanced the sequence. Retry once from the new high-water mark.
-    const retryCurrent = Math.max(Number(verified?.lastNumber ?? 0), await observedMax(db, prefix));
+    const retryCurrent = Math.max(
+      Number(verified?.lastNumber ?? 0),
+      await observedMax(db, workspaceId, prefix)
+    );
     const retryLast = retryCurrent + quantity;
 
     await db.prepare(`
       UPDATE sku_sequences
       SET last_number = ?, updated_at = ?
-      WHERE prefix = ?
-        AND last_number = ?
-    `).bind(retryLast, now, prefix, retryCurrent).run();
+      WHERE workspace_id = ? AND prefix = ? AND last_number = ?
+    `).bind(retryLast, now, workspaceId, prefix, retryCurrent).run();
 
     const retryVerified = await db.prepare(`
       SELECT last_number AS lastNumber
       FROM sku_sequences
-      WHERE prefix = ?
-    `).bind(prefix).first<{ lastNumber: number }>();
+      WHERE workspace_id = ? AND prefix = ?
+    `).bind(workspaceId, prefix).first<{ lastNumber: number }>();
 
     if (Number(retryVerified?.lastNumber ?? 0) !== retryLast) {
       throw new Error('SKU sequence changed while allocating. Please try again.');

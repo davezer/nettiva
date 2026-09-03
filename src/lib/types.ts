@@ -1,3 +1,11 @@
+export type WorkspaceSummary = {
+  id: string;
+  name: string;
+  slug: string;
+  plan: string;
+  role: 'owner' | 'admin' | 'member';
+};
+
 export type InventoryCategory =
   | 'action_figures'
   | 'baseball_cards'
@@ -114,6 +122,7 @@ export type SaleRow = {
 };
 
 export type DashboardData = {
+  workspace: WorkspaceSummary;
   isDemo: boolean;
   connected: boolean;
   hasImportedData: boolean;

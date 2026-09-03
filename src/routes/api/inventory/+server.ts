@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import type { InventoryCategory } from '$lib/types';
 import { allocateSkuRange, observeSku } from '$lib/server/sku-control';
+import { currentWorkspaceId } from '$lib/server/workspace';
 
 const INVENTORY_CATEGORIES = new Set<InventoryCategory>([
   'action_figures',
@@ -46,10 +47,12 @@ function normalizedPrefix(value: unknown) {
 }
 
 
-export const POST: RequestHandler = async ({ platform, request }) => {
+export const POST: RequestHandler = async ({ platform, request, locals }) => {
   if (!platform) {
     return json({ error: 'Cloudflare runtime is unavailable.' }, { status: 503 });
   }
+
+  const workspaceId = currentWorkspaceId(locals);
 
   const body = await request.json().catch(() => null) as InventoryInput | null;
   if (!body) return json({ error: 'Inventory details are required.' }, { status: 400 });
@@ -86,7 +89,7 @@ export const POST: RequestHandler = async ({ platform, request }) => {
       return json({ error: 'Auto SKU prefix must be 2–8 letters or numbers.' }, { status: 400 });
     }
 
-    skus = await allocateSkuRange(platform.env.DB, prefix, quantity);
+    skus = await allocateSkuRange(platform.env.DB, workspaceId, prefix, quantity);
   } else {
     if (quantity !== 1) {
       return json({ error: 'Batch intake requires automatic SKUs so every item stays individually trackable.' }, { status: 400 });
@@ -105,20 +108,20 @@ export const POST: RequestHandler = async ({ platform, request }) => {
     const duplicate = await platform.env.DB.prepare(`
       SELECT sku FROM (
         SELECT sku FROM inventory_items
-        WHERE sku IS NOT NULL AND LOWER(TRIM(sku)) = LOWER(TRIM(?))
+        WHERE workspace_id = ? AND sku IS NOT NULL AND LOWER(TRIM(sku)) = LOWER(TRIM(?))
         UNION ALL
         SELECT sku FROM sku_reservations
-        WHERE LOWER(TRIM(sku)) = LOWER(TRIM(?))
+        WHERE workspace_id = ? AND LOWER(TRIM(sku)) = LOWER(TRIM(?))
       )
       LIMIT 1
-    `).bind(sku, sku).first<{ sku: string }>();
+    `).bind(workspaceId, sku, workspaceId, sku).first<{ sku: string }>();
 
     if (duplicate) {
       return json({ error: `SKU ${sku} is already used or reserved. Nettiva will not recycle it.` }, { status: 409 });
     }
   }
 
-  if (!autoSku) await observeSku(platform.env.DB, skus[0]);
+  if (!autoSku) await observeSku(platform.env.DB, workspaceId, skus[0]);
 
   const now = new Date().toISOString();
   const batchId = quantity > 1 ? `batch:${crypto.randomUUID()}` : null;
@@ -126,12 +129,13 @@ export const POST: RequestHandler = async ({ platform, request }) => {
 
   const statements = ids.map((id, index) => platform.env.DB.prepare(`
     INSERT INTO inventory_items (
-      id, title, sku, condition_name, inventory_category, intake_batch_id,
+      workspace_id, id, title, sku, condition_name, inventory_category, intake_batch_id,
       purchase_cost_cents, source, storage_location, purchased_at,
       status, created_at, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unlisted', ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unlisted', ?, ?)
   `).bind(
+    workspaceId,
     id,
     title,
     skus[index],

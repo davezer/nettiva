@@ -81,6 +81,21 @@
   let datePreset = $state<DatePreset>('all');
   let customStart = $state('');
   let customEnd = $state('');
+  let workspaceName = $state('');
+
+  $effect(() => {
+    workspaceName = data.workspace?.name ?? 'Primary Workspace';
+  });
+  let workspaceSaving = $state(false);
+  let workspaceMessage = $state<string | null>(null);
+
+  const workspaceSafe = $derived(data.workspace ?? {
+    id: 'workspace_default',
+    name: 'Primary Workspace',
+    slug: 'primary-workspace',
+    plan: 'founder',
+    role: 'owner' as const
+  });
 
   const expenseCategories: { value: ExpenseCategory; label: string }[] = [
     { value: 'shipping_supplies', label: 'Shipping supplies' },
@@ -880,6 +895,34 @@
     window.print();
   }
 
+  async function saveWorkspace(event: SubmitEvent) {
+    event.preventDefault();
+    if (data.isDemo) {
+      workspaceMessage = 'Demo workspace settings are read-only.';
+      return;
+    }
+
+    workspaceSaving = true;
+    workspaceMessage = null;
+
+    const response = await fetch('/api/workspace', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: workspaceName.trim() })
+    });
+
+    workspaceSaving = false;
+
+    if (!response.ok) {
+      const result = await response.json().catch(() => null) as { error?: string } | null;
+      workspaceMessage = result?.error ?? 'Could not update the workspace.';
+      return;
+    }
+
+    workspaceMessage = 'Workspace updated.';
+    await invalidateAll();
+  }
+
   async function syncNow() {
     syncing = true;
     const response = await fetch('/api/ebay/sync', { method: 'POST' });
@@ -909,11 +952,11 @@
       {/each}
     </nav>
 
-    <div class="sidebar-foot">
+    <div class="sidebar-foot workspace-foot">
       <div class:online={data.connected} class="connection-dot"></div>
       <div>
-        <strong>{data.connected ? 'eBay connected' : data.hasImportedData ? 'Accounting workspace' : 'Demo workspace'}</strong>
-        <small>{data.lastSyncedAt ? `Synced ${shortDate(data.lastSyncedAt)}` : data.hasImportedData ? 'Manual history loaded' : 'Read-only mode'}</small>
+        <strong>{workspaceSafe.name}</strong>
+        <small>{data.connected ? 'eBay connected' : data.hasImportedData ? 'Accounting workspace' : 'Demo workspace'} · {workspaceSafe.role}</small>
       </div>
     </div>
   </aside>
@@ -925,6 +968,7 @@
         <h1>{navItems.find((item) => item.view === view)?.label}</h1>
       </div>
       <div class="top-actions">
+        <span class="workspace-chip"><span>{workspaceSafe.name}</span><small>{workspaceSafe.plan}</small></span>
         {#if data.isDemo}
           <span class="demo-badge">Demo data</span>
         {:else if !data.financialsComplete}
@@ -1414,6 +1458,18 @@
 
     {:else}
       <section class="connection-layout">
+        <article class="panel workspace-settings-card">
+          <span class="kicker">WORKSPACE</span>
+          <h2>Business identity</h2>
+          <p>This is the tenant boundary Nettiva uses to keep inventory, accounting, eBay data, and SKU sequences isolated from every other seller.</p>
+          <form class="workspace-settings-form" onsubmit={saveWorkspace}>
+            <label><span>Workspace name</span><input bind:value={workspaceName} maxlength="80" /></label>
+            <div class="workspace-meta"><span><small>Plan</small><strong>{workspaceSafe.plan}</strong></span><span><small>Role</small><strong>{workspaceSafe.role}</strong></span><span><small>Workspace ID</small><strong>{workspaceSafe.id}</strong></span></div>
+            {#if workspaceMessage}<p class="workspace-message">{workspaceMessage}</p>{/if}
+            <button class="button primary" disabled={workspaceSaving || workspaceName.trim().length < 2}>{#if workspaceSaving}<LoaderCircle class="spin" size={16} />{:else}<Check size={16} />{/if} Save workspace</button>
+          </form>
+        </article>
+
         <article class="connection-card">
           <div class:connected={data.connected} class="connection-hero"><PlugZap size={30} /><span>{data.connected ? 'CONNECTED' : 'NOT CONNECTED'}</span></div>
           <h2>{data.connected ? 'Your eBay store is linked' : 'Bring in your eBay business'}</h2>

@@ -2,6 +2,12 @@
 
 declare global {
   namespace App {
+    interface Locals {
+      userId: string;
+      workspaceId: string;
+      workspaceRole: 'owner' | 'admin' | 'member';
+    }
+
     interface Platform {
       env: {
         DB: D1Database;

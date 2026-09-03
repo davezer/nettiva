@@ -50,6 +50,7 @@ const transactions: AccountingTransactionRow[] = [
 ];
 
 export const demoData: DashboardData = {
+  workspace: { id: 'workspace_demo', name: 'Demo Workspace', slug: 'demo-workspace', plan: 'demo', role: 'owner' },
   isDemo: true,
   connected: false,
   hasImportedData: false,
