@@ -469,8 +469,7 @@
   }
 
   function openCogsQueue() {
-    view = 'accounting';
-    costMessage = null;
+    window.location.assign('/cogs');
   }
 
   function formatSigned(cents: number) {
@@ -1215,10 +1214,17 @@
           </article>
 
           <article class="panel cogs-panel">
-            <div class="panel-heading"><div><span class="kicker">COGS DESK</span><h2>Missing purchase costs</h2></div><Tag size={20} /></div>
+            <div class="panel-heading">
+              <div><span class="kicker">COGS DESK</span><h2>Missing purchase costs</h2></div>
+              {#if missingSaleCosts.length}
+                <span class="read-only">{missingSaleCosts.length} missing</span>
+              {:else}
+                <Tag size={20} />
+              {/if}
+            </div>
             {#if missingSaleCosts.length}
               <div class="cogs-list">
-                {#each missingSaleCosts as sale}
+                {#each missingSaleCosts.slice(0, 6) as sale}
                   <div class="cogs-row">
                     <div class="cogs-row-copy">
                       <strong>{sale.title}</strong>
@@ -1241,6 +1247,16 @@
                   </div>
                 {/each}
               </div>
+
+              <div class="panel-heading table-heading">
+                <span class="read-only">
+                  Showing {Math.min(6, missingSaleCosts.length)} of {missingSaleCosts.length}
+                </span>
+                <a class="button mini secondary" href="/cogs">
+                  View all missing costs <ChevronRight size={14} />
+                </a>
+              </div>
+
               {#if costMessage}<p class="queue-note">{costMessage}</p>{/if}
             {:else}
               <div class="cogs-complete"><Check size={18} /> Every sale in this period has a purchase cost.</div>

@@ -158,13 +158,18 @@
         </div>
 
         <div class="provider-actions">
-          <a class="button secondary" href="/import">
-            <FileSpreadsheet size={15} /> Import Weekly Orders Report
-          </a>
+          <div class="provider-button-row">
+            <a class="button secondary" href="/import">
+              <FileSpreadsheet size={15} /> Import Whatnot data
+            </a>
+            <a class="button secondary" href="/reconciliation">
+              <BadgeDollarSign size={15} /> Reconciliation
+            </a>
+          </div>
           <small>
             {whatnot.orders
-              ? `${whatnot.orders} Whatnot order${whatnot.orders === 1 ? '' : 's'} normalized into Nettiva.`
-              : 'Weekly Orders Reports work now. API and webhook ingestion can plug into the same adapter later.'}
+              ? `${whatnot.orders} Whatnot order${whatnot.orders === 1 ? '' : 's'} normalized into Nettiva. Orders drive P&L; Ledger drives balance reconciliation.`
+              : 'Weekly Orders Reports and Ledger exports can now feed separate parts of the same Whatnot accounting trail.'}
           </small>
         </div>
       </article>
@@ -201,11 +206,11 @@
 
     <section class="next-card">
       <div>
-        <span class="eyebrow">NEXT WHATNOT LAYER</span>
-        <h2>Ledger reconciliation</h2>
+        <span class="eyebrow">WHATNOT MONEY TRAIL</span>
+        <h2>Orders + balance now stay separate on purpose.</h2>
         <p>
-          Weekly Orders Reports now drive sales and profit. The separate Whatnot Ledger export
-          will become the payout, tip, credit, and account-balance reconciliation feed.
+          Weekly Orders Reports remain the P&L source. Ledger exports reconcile sales earnings,
+          tips, payouts, and marketplace balance movement without counting sales revenue twice.
         </p>
       </div>
       <PackageCheck size={34} />
@@ -315,6 +320,7 @@
     min-height: 73px; display: flex; flex-direction: column; align-items: flex-start;
     justify-content: flex-end; gap: 8px; margin-top: 16px;
   }
+  .provider-button-row { display: flex; flex-wrap: wrap; gap: 8px; }
   .provider-actions small { color: #5e6b76; font-size: .66rem; line-height: 1.45; }
   .button {
     display: inline-flex; align-items: center; justify-content: center; gap: 7px;
