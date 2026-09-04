@@ -14,6 +14,7 @@
     FinanceCategory,
     InventoryCategory,
     InventoryRow,
+    MarketplaceProvider,
     SaleRow
   } from '$lib/types';
   import { money, shortDate } from '$lib/money';
@@ -25,6 +26,7 @@
   type Filter = 'all' | InventoryRow['status'];
   type InventoryCategoryFilter = 'all' | InventoryCategory;
   type DatePreset = 'all' | '30d' | 'this-month' | 'last-month' | 'ytd' | 'custom';
+  type ChannelFilter = 'all' | MarketplaceProvider;
 
   const PNL_CATEGORIES = new Set<FinanceCategory>([
     'selling_fee', 'shipping_label', 'refund', 'dispute',
@@ -80,6 +82,7 @@
   let expenseMessage = $state<string | null>(null);
   let deletingExpenseId = $state<string | null>(null);
   let datePreset = $state<DatePreset>('all');
+  let channelFilter = $state<ChannelFilter>('all');
   let customStart = $state('');
   let customEnd = $state('');
   let workspaceName = $state('');
@@ -201,9 +204,47 @@
     return (!start || timestamp >= start.getTime()) && (!end || timestamp <= end.getTime());
   }
 
-  const filteredSales = $derived.by(() => data.sales.filter((sale) => inDateRange(sale.soldAt)));
+  function saleProvider(sale: SaleRow): MarketplaceProvider {
+    // Demo/legacy rows predate provider tagging and are eBay-shaped.
+    return sale.marketplaceProvider === 'whatnot' ? 'whatnot' : 'ebay';
+  }
+
+  function transactionProvider(transaction: AccountingTransactionRow) {
+    if (transaction.marketplaceProvider) return transaction.marketplaceProvider;
+    return transaction.source === 'manual' ? 'manual' : 'ebay';
+  }
+
+  function marketplaceLabel(provider: MarketplaceProvider) {
+    return provider === 'whatnot' ? 'Whatnot' : 'eBay';
+  }
+
+  function transactionChannelLabel(transaction: AccountingTransactionRow) {
+    const provider = transactionProvider(transaction);
+    if (provider === 'manual') return 'Business-wide';
+    if (provider === 'whatnot') return 'Whatnot';
+    if (provider === 'ebay') return 'eBay';
+    return 'Other';
+  }
+
+  const channelLabel = $derived(
+    channelFilter === 'all' ? 'All channels' : marketplaceLabel(channelFilter)
+  );
+
+  const filteredSales = $derived.by(() =>
+    data.sales.filter((sale) =>
+      inDateRange(sale.soldAt) &&
+      (channelFilter === 'all' || saleProvider(sale) === channelFilter)
+    )
+  );
+
   const filteredTransactions = $derived.by(() =>
-    data.transactions.filter((transaction) => inDateRange(transaction.transactionDate))
+    data.transactions.filter((transaction) =>
+      inDateRange(transaction.transactionDate) &&
+      (
+        channelFilter === 'all' ||
+        transactionProvider(transaction) === channelFilter
+      )
+    )
   );
 
   const metrics = $derived.by(() => {
@@ -326,9 +367,14 @@
 
   const relatedTransactions = $derived.by(() => {
     if (!selectedSale) return [];
+    const provider = saleProvider(selectedSale);
+
     return data.transactions.filter((transaction) =>
-      transaction.ebayLineItemId === selectedSale?.ebayLineItemId ||
-      transaction.ebayOrderId === selectedSale?.ebayOrderId
+      transactionProvider(transaction) === provider &&
+      (
+        transaction.ebayLineItemId === selectedSale?.ebayLineItemId ||
+        transaction.ebayOrderId === selectedSale?.ebayOrderId
+      )
     );
   });
 
@@ -430,8 +476,12 @@
     !data.financialsComplete
       ? 'Estimated profit'
       : metrics.missingCogs
-        ? 'Profit before missing COGS'
-        : 'Net profit'
+        ? channelFilter === 'all'
+          ? 'Profit before missing COGS'
+          : `${marketplaceLabel(channelFilter)} profit before missing COGS`
+        : channelFilter === 'all'
+          ? 'Net profit'
+          : `${marketplaceLabel(channelFilter)} channel profit`
   );
 
   const percent = (value: number) => `${value.toFixed(1)}%`;
@@ -806,15 +856,16 @@
 
   function reportSuffix() {
     const { start, end } = dateRange();
-    if (!start && !end) return 'all-time';
+    const channel = channelFilter === 'all' ? 'all-channels' : channelFilter;
+    if (!start && !end) return `${channel}-all-time`;
     const format = (date: Date | null) => date ? date.toISOString().slice(0, 10) : 'open';
-    return `${format(start)}_to_${format(end)}`;
+    return `${channel}-${format(start)}_to_${format(end)}`;
   }
 
   function exportPnl() {
     downloadCsv(
       `nettiva-pnl-${reportSuffix()}.csv`,
-      ['Month', 'Sales', 'Gross revenue', 'eBay fees', 'Shipping labels', 'Refunds/disputes', 'Other adjustments', 'Business expenses', 'COGS', 'Missing COGS', 'Net profit', 'Margin %'],
+      ['Month', 'Sales', 'Gross revenue', 'Marketplace fees', 'Shipping labels', 'Refunds/disputes', 'Other adjustments', 'Business expenses', 'COGS', 'Missing COGS', 'Net profit', 'Margin %'],
       monthlyRows.map((row) => [
         row.label,
         row.sales,
@@ -835,9 +886,10 @@
   function exportSales() {
     downloadCsv(
       `nettiva-sales-${reportSuffix()}.csv`,
-      ['Sold date', 'Order ID', 'eBay item ID', 'Title', 'Item price', 'Buyer shipping', 'Selling fees', 'Shipping label', 'Refunds', 'Disputes', 'Other adjustments', 'COGS', 'Profit', 'Margin %', 'ROI %'],
+      ['Sold date', 'Marketplace', 'Order ID', 'External item ID', 'Title', 'Item price', 'Buyer shipping', 'Selling fees', 'Shipping label', 'Refunds', 'Disputes', 'Other adjustments', 'COGS', 'Profit', 'Margin %', 'ROI %'],
       filteredSales.map((sale) => [
         sale.soldAt,
+        marketplaceLabel(saleProvider(sale)),
         sale.ebayOrderId,
         sale.ebayItemId,
         sale.title,
@@ -873,9 +925,10 @@
   function exportLedger() {
     downloadCsv(
       `nettiva-ledger-${reportSuffix()}.csv`,
-      ['Date', 'Category', 'Type', 'Description', 'Order ID', 'Fee type', 'Amount', 'Source', 'Expense category', 'Memo', 'Payout ID', 'Reference ID'],
+      ['Date', 'Marketplace', 'Category', 'Type', 'Description', 'Order ID', 'Fee type', 'Amount', 'Source', 'Expense category', 'Memo', 'Payout ID', 'Reference ID'],
       filteredTransactions.map((transaction) => [
         transaction.transactionDate,
+        transactionChannelLabel(transaction),
         transaction.category,
         transaction.transactionType,
         transaction.description,
@@ -961,7 +1014,7 @@
       <div class:online={data.connected} class="connection-dot"></div>
       <div>
         <strong>{workspaceSafe.name}</strong>
-        <small>{data.connected ? 'eBay connected' : data.hasImportedData ? 'Accounting workspace' : 'Demo workspace'} · {workspaceSafe.role}</small>
+        <small>{data.hasImportedData ? 'Multi-channel workspace' : data.connected ? 'Marketplace workspace' : 'Demo workspace'} · {workspaceSafe.role}</small>
       </div>
     </div>
   </aside>
@@ -981,13 +1034,12 @@
         {:else if metrics.missingCogs > 0 && ['dashboard', 'sales', 'accounting', 'reports'].includes(view)}
           <span class="demo-badge">{metrics.missingCogs} COGS missing</span>
         {/if}
+        <a class="button secondary" href="/marketplaces"><ShoppingBag size={17} /> Marketplaces</a>
         {#if data.connected}
           <button class="button secondary" onclick={syncNow} disabled={syncing}>
             {#if syncing}<LoaderCircle class="spin" size={17} />{:else}<RefreshCw size={17} />{/if}
-            Sync now
+            Sync eBay
           </button>
-        {:else}
-          <a class="button primary" href="/api/ebay/connect"><PlugZap size={17} /> Connect eBay</a>
         {/if}
       </div>
     </header>
@@ -1017,6 +1069,19 @@
             <input aria-label="End date" type="date" bind:value={customEnd} />
           </div>
         {/if}
+
+        <span class="toolbar-divider" aria-hidden="true"></span>
+
+        <span><ShoppingBag size={15} /> Channel</span>
+        <div class="channel-presets" role="group" aria-label="Filter reporting channel">
+          <button class:active={channelFilter === 'all'} onclick={() => channelFilter = 'all'}>All channels</button>
+          <button class:active={channelFilter === 'ebay'} onclick={() => channelFilter = 'ebay'}>eBay</button>
+          <button class:active={channelFilter === 'whatnot'} onclick={() => channelFilter = 'whatnot'}>Whatnot</button>
+        </div>
+
+        {#if channelFilter !== 'all'}
+          <span class="channel-scope-note">Business-wide manual expenses excluded from channel-only profit.</span>
+        {/if}
       </div>
     {/if}
 
@@ -1026,7 +1091,7 @@
           <article class="metric-card tone-green">
             <div class="metric-top"><span>Gross sales</span><CircleDollarSign size={18} /></div>
             <strong>{money(metrics.gross)}</strong>
-            <p>{filteredSales.length} sales in period</p>
+            <p>{filteredSales.length} sales · {channelLabel}</p>
           </article>
           <article class="metric-card tone-blue">
             <div class="metric-top"><span>{profitLabel}</span><TrendingUp size={18} /></div>
@@ -1110,7 +1175,7 @@
       <div class="inventory-view-stack">
         <section class="inventory-summary sku-aware-summary">
           <div><span>Unlisted intake</span><strong>{unlistedCount}</strong><small>waiting to list</small></div>
-          <div><span>Scheduled</span><strong>{scheduledItems.length}</strong><small>future eBay listings</small></div>
+          <div><span>Scheduled</span><strong>{scheduledItems.length}</strong><small>future marketplace listings</small></div>
           <div><span>Active listings</span><strong>{activeItems.length}</strong><small>{money(activeValue)} listed</small></div>
           <div><span>Inventory cost basis</span><strong>{money(inventoryCostBasis)}</strong><small>unsold purchase cost</small></div>
           <div class="inventory-summary-actions"><button class="button secondary" onclick={() => skuManagerOpen = true}><Archive size={17} /> SKU manager</button><button class="button primary" onclick={openIntake}><Tag size={17} /> Add inventory</button></div>
@@ -1118,7 +1183,7 @@
 
         <section class="panel inventory-panel">
           <div class="inventory-tools">
-            <label class="search-field"><Search size={18} /><span class="sr-only">Search inventory</span><input bind:value={query} placeholder="Search title, SKU, category, or eBay ID" /></label>
+            <label class="search-field"><Search size={18} /><span class="sr-only">Search inventory</span><input bind:value={query} placeholder="Search title, SKU, category, or marketplace ID" /></label>
             <label class="inventory-category-filter">
               <span class="sr-only">Filter by category</span>
               <select bind:value={inventoryCategoryFilter}>
@@ -1137,7 +1202,7 @@
         {#if filteredInventory.length}
           {@render inventoryTable(filteredInventory)}
         {:else}
-          <div class="empty-state"><strong>No inventory matches this view.</strong>Live listings will populate automatically once the eBay API is connected.</div>
+          <div class="empty-state"><strong>No inventory matches this view.</strong>Live listings will populate automatically as marketplace APIs are connected.</div>
         {/if}
         </section>
       </div>
@@ -1155,14 +1220,19 @@
         </div>
         {#if filteredSales.length}
           <div class="table-wrap"><table><thead><tr>
-            <th>Item</th><th>Sold</th><th class="num">Gross</th><th class="num">eBay + ship</th>
+            <th>Item</th><th>Sold</th><th class="num">Gross</th><th class="num">Fees + adjustments</th>
             <th class="num">COGS</th><th class="num">Profit</th><th class="num">Margin</th><th class="num">ROI</th>
           </tr></thead><tbody>
             {#each filteredSales as sale}
               <tr>
                 <td>
                   <button class="sale-button" onclick={() => selectedSale = sale}>
-                    <strong>{sale.title}</strong>
+                    <span class="sale-title-line">
+                      <strong>{sale.title}</strong>
+                      <span class:whatnot={saleProvider(sale) === 'whatnot'} class="marketplace-pill">
+                        {marketplaceLabel(saleProvider(sale))}
+                      </span>
+                    </span>
                     <small>{sale.ebayOrderId} · View breakdown →</small>
                   </button>
                 </td>
@@ -1187,7 +1257,7 @@
       <div class="accounting-stack">
         <section class="metrics-grid" aria-label="Accounting summary">
           <article class="metric-card tone-green"><div class="metric-top"><span>Gross revenue</span><CircleDollarSign size={18} /></div><strong>{money(metrics.gross)}</strong><p>{filteredSales.length} sales</p></article>
-          <article class="metric-card tone-blue"><div class="metric-top"><span>eBay selling fees</span><ReceiptText size={18} /></div><strong>{money(metrics.sellingFees)}</strong><p>Platform fees in period</p></article>
+          <article class="metric-card tone-blue"><div class="metric-top"><span>Marketplace fees</span><ReceiptText size={18} /></div><strong>{money(metrics.sellingFees)}</strong><p>Platform fees in period</p></article>
           <article class="metric-card tone-violet"><div class="metric-top"><span>Shipping labels</span><PackageCheck size={18} /></div><strong>{money(metrics.shippingLabels)}</strong><p>Seller-paid postage</p></article>
           <article class="metric-card tone-amber"><div class="metric-top"><span>{profitLabel}</span><WalletCards size={18} /></div><strong>{money(metrics.profit)}</strong><p>{profitIsFinal ? `${percent(metrics.margin)} true margin` : `${metrics.missingCogs} missing COGS`}</p></article>
         </section>
@@ -1197,7 +1267,7 @@
             <div class="panel-heading"><div><span class="kicker">PROFIT & LOSS</span><h2>Where the money went</h2></div><BarChart3 size={20} /></div>
             <div class="pnl-list">
               <div class="pnl-row"><span>Gross sales + buyer shipping</span><strong class="credit">+{money(metrics.gross)}</strong></div>
-              <div class="pnl-row"><span>eBay selling fees</span><strong class="debit">−{money(metrics.sellingFees)}</strong></div>
+              <div class="pnl-row"><span>Marketplace fees</span><strong class="debit">−{money(metrics.sellingFees)}</strong></div>
               <div class="pnl-row"><span>Shipping labels</span><strong class="debit">−{money(metrics.shippingLabels)}</strong></div>
               <div class="pnl-row"><span>Refunds & disputes</span><strong class="debit">−{money(metrics.refundsDisputes)}</strong></div>
               <div class="pnl-row"><span>Other fees / credits / adjustments</span><strong class:credit={metrics.otherAdjustments >= 0} class:debit={metrics.otherAdjustments < 0}>{formatSigned(metrics.otherAdjustments)}</strong></div>
@@ -1268,7 +1338,7 @@
           <div class="panel-heading table-heading">
             <div>
               <span class="kicker">BUSINESS EXPENSES</span>
-              <h2>Money spent outside eBay</h2>
+              <h2>Business-wide operating costs</h2>
             </div>
             <span class="read-only">{money(metrics.businessExpenses)} in period</span>
           </div>
@@ -1331,23 +1401,30 @@
           {:else}
             <div class="empty-state compact-empty">
               <strong>No manual expenses in this period.</strong>
-              Add costs eBay cannot see—supplies, software, show fees, equipment, advertising, and more.
+              Add costs no marketplace sale owns directly—supplies, software, show fees, equipment, advertising, and more.
             </div>
           {/if}
         </section>
 
         <section class="panel accounting-ledger">
           <div class="panel-heading table-heading">
-            <div><span class="kicker">TRANSACTION LEDGER</span><h2>eBay money trail</h2></div>
+            <div><span class="kicker">TRANSACTION LEDGER</span><h2>Marketplace money trail</h2></div>
             <span class="read-only">{filteredTransactions.length} entries</span>
           </div>
           {#if filteredTransactions.length}
             <div class="table-wrap"><table><thead><tr>
-              <th>Date</th><th>Category</th><th>Description</th><th>Order</th><th class="num">Amount</th><th>P&L</th>
+              <th>Date</th><th>Channel</th><th>Category</th><th>Description</th><th>Order</th><th class="num">Amount</th><th>P&L</th>
             </tr></thead><tbody>
               {#each filteredTransactions as transaction}
                 <tr>
                   <td>{shortDate(transaction.transactionDate)}</td>
+                  <td>
+                    <span
+                      class:whatnot={transactionProvider(transaction) === 'whatnot'}
+                      class:manual={transactionProvider(transaction) === 'manual'}
+                      class="marketplace-pill"
+                    >{transactionChannelLabel(transaction)}</span>
+                  </td>
                   <td><span class={`ledger-category ${transaction.category}`}>{categoryLabel(transaction.category)}</span></td>
                   <td class="title-cell">
                     <strong>{transaction.feeType || transaction.description || transaction.transactionType}</strong>
@@ -1370,7 +1447,7 @@
         <section class="report-hero panel">
           <div>
             <span class="kicker">REPORT CENTER</span>
-            <h2>Business performance</h2>
+            <h2>{channelLabel} performance</h2>
             <p>{profitIsFinal ? 'Fully costed accounting report.' : metrics.missingCogs ? `${metrics.missingCogs} sale cost${metrics.missingCogs === 1 ? '' : 's'} missing in this period.` : 'Financial data is still reconciling.'}</p>
           </div>
           <div class="report-actions">
@@ -1382,7 +1459,7 @@
         <section class="metrics-grid report-metrics" aria-label="Report summary">
           <article class="metric-card tone-green"><div class="metric-top"><span>Gross revenue</span><CircleDollarSign size={18} /></div><strong>{money(metrics.gross)}</strong><p>{filteredSales.length} sales</p></article>
           <article class="metric-card tone-blue"><div class="metric-top"><span>Known COGS</span><Tag size={18} /></div><strong>{money(metrics.cogs)}</strong><p>{metrics.missingCogs ? `${metrics.missingCogs} costs still missing` : 'Fully costed'}</p></article>
-          <article class="metric-card tone-violet"><div class="metric-top"><span>Business expenses</span><ReceiptText size={18} /></div><strong>{money(metrics.businessExpenses)}</strong><p>{manualExpenses.length} manual expense${manualExpenses.length === 1 ? '' : 's'}</p></article>
+          <article class="metric-card tone-violet"><div class="metric-top"><span>Business expenses</span><ReceiptText size={18} /></div><strong>{money(metrics.businessExpenses)}</strong><p>{channelFilter === 'all' ? `${manualExpenses.length} manual expense${manualExpenses.length === 1 ? '' : 's'}` : 'Business-wide · All channels only'}</p></article>
           <article class="metric-card tone-amber"><div class="metric-top"><span>{profitLabel}</span><WalletCards size={18} /></div><strong>{money(metrics.profit)}</strong><p>{percent(metrics.margin)} margin</p></article>
         </section>
 
@@ -1394,7 +1471,7 @@
             </div>
             {#if monthlyRows.length}
               <div class="table-wrap"><table><thead><tr>
-                <th>Month</th><th class="num">Sales</th><th class="num">Gross</th><th class="num">eBay fees</th>
+                <th>Month</th><th class="num">Sales</th><th class="num">Gross</th><th class="num">Marketplace fees</th>
                 <th class="num">Labels</th><th class="num">Expenses</th><th class="num">COGS</th>
                 <th class="num">Profit</th><th class="num">Margin</th>
               </tr></thead><tbody>
@@ -1435,7 +1512,14 @@
                 {/each}
               </div>
             {:else}
-              <div class="empty-state compact-empty"><strong>No business expenses in this period.</strong>Your manual expense categories will appear here.</div>
+              <div class="empty-state compact-empty">
+                {#if channelFilter === 'all'}
+                  <strong>No business expenses in this period.</strong>Your manual expense categories will appear here.
+                {:else}
+                  <strong>Business-wide expenses are not assigned to {marketplaceLabel(channelFilter)}.</strong>
+                  Switch to All channels to view and include them.
+                {/if}
+              </div>
             {/if}
           </article>
         </section>
@@ -1448,7 +1532,7 @@
           <div class="export-grid">
             <button onclick={exportPnl}><span class="export-icon"><BarChart3 size={20} /></span><span><strong>Profit & loss</strong><small>Monthly revenue, fees, expenses, COGS and profit</small></span><Download size={17} /></button>
             <button onclick={exportSales}><span class="export-icon"><BadgeDollarSign size={20} /></span><span><strong>Sales report</strong><small>One row per sale with costs, profit, margin and ROI</small></span><Download size={17} /></button>
-            <button onclick={exportExpenses}><span class="export-icon"><ReceiptText size={20} /></span><span><strong>Expense report</strong><small>Manual business expenses and categories</small></span><Download size={17} /></button>
+            <button disabled={channelFilter !== 'all'} onclick={exportExpenses}><span class="export-icon"><ReceiptText size={20} /></span><span><strong>Business-wide expense report</strong><small>{channelFilter === 'all' ? 'Manual business expenses and categories' : 'Switch to All channels to export'}</small></span><Download size={17} /></button>
             <button onclick={exportLedger}><span class="export-icon"><WalletCards size={20} /></span><span><strong>Transaction ledger</strong><small>Every normalized financial transaction in the period</small></span><Download size={17} /></button>
           </div>
         </section>
@@ -1456,11 +1540,11 @@
         <section class="print-report-only">
           <header>
             <strong>NETTIVA</strong>
-            <span>Business Performance Report</span>
+            <span>{channelLabel} · Business Performance Report</span>
           </header>
           <div class="print-summary">
             <div><span>Gross revenue</span><strong>{money(metrics.gross)}</strong></div>
-            <div><span>eBay fees</span><strong>−{money(metrics.sellingFees)}</strong></div>
+            <div><span>Marketplace fees</span><strong>−{money(metrics.sellingFees)}</strong></div>
             <div><span>Shipping labels</span><strong>−{money(metrics.shippingLabels)}</strong></div>
             <div><span>Business expenses</span><strong>−{money(metrics.businessExpenses)}</strong></div>
             <div><span>Known COGS</span><strong>−{money(metrics.cogs)}</strong></div>
@@ -1527,7 +1611,7 @@
           <h2>Ready for API sync</h2>
           <ul>
             <li><Check /> Signed debit / credit ledger</li>
-            <li><Check /> eBay fee breakdown</li>
+            <li><Check /> Marketplace fee breakdown</li>
             <li><Check /> Shipping-label expenses</li>
             <li><Check /> COGS and true-profit workflow</li>
             <li><Check /> Payouts excluded from P&L</li>
@@ -1599,7 +1683,7 @@
       <button class="dialog-close" aria-label="Close" onclick={() => intakeOpen = false}><X size={18} /></button>
       <span class="kicker">INVENTORY INTAKE</span>
       <h2 id="intake-title">Add something you bought</h2>
-      <p class="intake-intro">Capture the cost now. When this item later appears on eBay with the same unique SKU/custom label, Nettiva can reconcile the listing onto this record instead of creating a duplicate.</p>
+      <p class="intake-intro">Capture the cost now. When this item later appears on a marketplace with the same unique SKU/custom label, Nettiva can reconcile the listing onto this record instead of creating a duplicate.</p>
 
       <form class="intake-form" onsubmit={saveIntake}>
         <label class="wide-field">
@@ -1637,8 +1721,8 @@
         <div class="sku-builder wide-field">
           <div class="sku-builder-head">
             <div>
-              <strong>SKU / eBay custom label</strong>
-              <small>Stable identity for future eBay matching</small>
+              <strong>SKU / marketplace label</strong>
+              <small>Stable identity for future marketplace matching</small>
             </div>
             <label class="sku-auto-toggle">
               <input type="checkbox" bind:checked={intakeAutoSku} />
@@ -1697,7 +1781,7 @@
 
         <div class="intake-match-note wide-field">
           <Tag size={17} />
-          <span><strong>Future eBay match</strong>Use the generated SKU as the eBay custom label. The listing title can be completely different.</span>
+          <span><strong>Future marketplace match</strong>Use the generated SKU as the marketplace SKU/custom label. The listing title can be completely different.</span>
         </div>
 
         {#if intakeMessage}<p class="form-message wide-field">{intakeMessage}</p>{/if}
@@ -1751,7 +1835,7 @@
         <label><span>Storage location</span><input bind:value={location} placeholder="A-14" /></label>
 
         {#if !editing.ebayItemId && editing.status === 'unlisted'}
-          <p class="sku-helper wide-field">Use the same SKU/custom label when you list this on eBay. Nettiva will use a unique match to attach the future eBay listing without losing your cost or intake history.</p>
+          <p class="sku-helper wide-field">Use the same SKU/custom label when you list this on a marketplace. Nettiva will use a unique match to attach the future listing without losing your cost or intake history.</p>
         {/if}
         {#if saveMessage}<p class="form-message wide-field">{saveMessage}</p>{/if}
 
@@ -1775,7 +1859,7 @@
 
 {#if selectedSale}
   {@const grossRevenue = selectedSale.salePriceCents + selectedSale.shippingChargedCents}
-  {@const ebayNetProceeds = grossRevenue - selectedSale.sellingFeesCents}
+  {@const afterMarketplaceFees = grossRevenue - selectedSale.sellingFeesCents}
   {@const refundDisputeTotal = selectedSale.refundsCents + selectedSale.disputesCents}
 
   <div class="modal-backdrop" role="presentation">
@@ -1784,7 +1868,12 @@
       <button class="dialog-close" aria-label="Close" onclick={() => selectedSale = null}><X size={18} /></button>
       <span class="kicker">SALE BREAKDOWN</span>
       <h2 id="sale-title">{selectedSale.title}</h2>
-      <p class="sale-dialog-sub">Order {selectedSale.ebayOrderId} · sold {shortDate(selectedSale.soldAt)}</p>
+      <p class="sale-dialog-sub">
+        <span class:whatnot={saleProvider(selectedSale) === 'whatnot'} class="marketplace-pill">
+          {marketplaceLabel(saleProvider(selectedSale))}
+        </span>
+        Order {selectedSale.ebayOrderId} · sold {shortDate(selectedSale.soldAt)}
+      </p>
 
       <div class="money-flow">
         <section class="money-flow-section">
@@ -1795,10 +1884,10 @@
         </section>
 
         <section class="money-flow-section">
-          <div class="money-flow-heading"><span>02</span><strong>eBay</strong></div>
+          <div class="money-flow-heading"><span>02</span><strong>{marketplaceLabel(saleProvider(selectedSale))}</strong></div>
           <div class="money-line expense"><span>Selling fees</span><strong>−{money(selectedSale.sellingFeesCents)}</strong></div>
-          <div class="money-line subtotal ebay-net"><span>Order net proceeds</span><strong>{money(ebayNetProceeds)}</strong></div>
-          <p class="flow-note">This is the SALE amount eBay reports after its selling fees are deducted.</p>
+          <div class="money-line subtotal ebay-net"><span>After marketplace fees</span><strong>{money(afterMarketplaceFees)}</strong></div>
+          <p class="flow-note">Gross collected less marketplace selling fees. Shipping labels and other costs are shown separately.</p>
         </section>
 
         <section class="money-flow-section">
@@ -1849,7 +1938,7 @@
 
       <details class="transaction-details">
         <summary>
-          <span><ReceiptText size={16} /> eBay ledger details</span>
+          <span><ReceiptText size={16} /> Marketplace ledger details</span>
           <small>{relatedTransactions.length} transaction{relatedTransactions.length === 1 ? '' : 's'}</small>
         </summary>
         {#if relatedTransactions.length}
@@ -1860,7 +1949,7 @@
                 <span>
                   {transactionDisplayLabel(transaction)}
                   {#if transaction.category === 'sale'}
-                    <small>After eBay selling fees</small>
+                    <small>Marketplace-reported net proceeds</small>
                   {/if}
                 </span>
                 <strong class:credit={transaction.amountCents > 0} class:debit={transaction.amountCents < 0}>{formatSigned(transaction.amountCents)}</strong>

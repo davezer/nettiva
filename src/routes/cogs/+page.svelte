@@ -305,7 +305,7 @@
       </label>
 
       <div class="provider-tabs" role="group" aria-label="Filter marketplace">
-        <button class:active={provider === 'all'} onclick={() => provider = 'all'}>All</button>
+        <button class:active={provider === 'all'} onclick={() => provider = 'all'}>All channels</button>
         <button class:active={provider === 'ebay'} onclick={() => provider = 'ebay'}>eBay</button>
         <button class:active={provider === 'whatnot'} onclick={() => provider = 'whatnot'}>Whatnot</button>
       </div>

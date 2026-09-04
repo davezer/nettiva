@@ -1219,3 +1219,108 @@
   .account-actions { grid-column: 1 / -1; width: 100%; }
   .account-actions .button { flex: 1; }
 }
+
+/* Marketplace channel reporting v1 */
+.toolbar-divider {
+  width: 1px;
+  height: 26px;
+  margin: 0 4px !important;
+  background: #2a3541;
+}
+
+.channel-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid #2a3541;
+  border-radius: 8px;
+  background: #0c1117;
+}
+
+.channel-presets button {
+  border: 0;
+  border-radius: 5px;
+  padding: 7px 10px;
+  background: transparent;
+  color: #788591;
+  font-size: .76rem;
+}
+
+.channel-presets button.active {
+  background: #b8f34a;
+  color: #10140e;
+  font-weight: 850;
+}
+
+.date-toolbar > .channel-scope-note {
+  margin-left: 2px;
+  color: #c3a561;
+  font-size: .69rem;
+}
+
+.sale-title-line {
+  max-width: 430px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.sale-title-line > strong {
+  min-width: 0;
+}
+
+.marketplace-pill {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #3a4651;
+  border-radius: 999px;
+  padding: 3px 7px;
+  color: #b8c2ca;
+  background: #1a222b;
+  font: 800 .58rem "SFMono-Regular", Consolas, monospace;
+  letter-spacing: .02em;
+  white-space: nowrap;
+}
+
+.marketplace-pill.whatnot {
+  border-color: #4b622f;
+  color: #b8f34a;
+  background: #17200f;
+}
+
+.marketplace-pill.manual {
+  border-color: #5a4b31;
+  color: #d7b56f;
+  background: #251f14;
+}
+
+.sale-dialog-sub {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.export-grid button:disabled {
+  opacity: .42;
+  cursor: not-allowed;
+}
+
+.export-grid button:disabled:hover {
+  border-color: inherit;
+  transform: none;
+}
+
+@media (max-width: 760px) {
+  .toolbar-divider {
+    display: none !important;
+  }
+
+  .date-toolbar > .channel-scope-note {
+    flex-basis: 100%;
+  }
+}
+

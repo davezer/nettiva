@@ -23,6 +23,7 @@ type InventoryDbRow = Omit<InventoryRow, 'ageDays'>;
 type SaleDbRow = {
   id: string;
   inventoryItemId: string | null;
+  marketplaceProvider: string;
   ebayOrderId: string;
   ebayLineItemId: string;
   ebayItemId: string | null;
@@ -38,7 +39,9 @@ type SaleDbRow = {
   otherAdjustmentsCents: number;
   pnlAdjustmentsCents: number;
 };
-type TransactionDbRow = AccountingTransactionRow;
+type TransactionDbRow = Omit<AccountingTransactionRow, 'marketplaceProvider'> & {
+  marketplaceProvider: string;
+};
 
 export const load: PageServerLoad = async ({ platform, locals }) => {
   const db = platform?.env.DB;
@@ -109,6 +112,7 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
         SELECT
           oi.id,
           oi.inventory_item_id AS inventoryItemId,
+          oi.marketplace_provider AS marketplaceProvider,
           o.external_order_id AS ebayOrderId,
           oi.external_line_item_id AS ebayLineItemId,
           oi.external_item_id AS ebayItemId,
@@ -160,6 +164,7 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
       db.prepare(`
         SELECT
           id,
+          marketplace_provider AS marketplaceProvider,
           transaction_date AS transactionDate,
           category,
           transaction_type AS transactionType,
@@ -212,6 +217,7 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
 
       return {
         ...row,
+        marketplaceProvider: row.marketplaceProvider === 'whatnot' ? 'whatnot' : 'ebay',
         salePriceCents: Number(row.salePriceCents),
         shippingChargedCents: Number(row.shippingChargedCents),
         sellingFeesCents: Number(row.sellingFeesCents ?? 0),
@@ -228,8 +234,18 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
       };
     });
 
-    const transactions = (transactionResult.results as unknown as TransactionDbRow[]).map((row) => ({
+    const transactions: AccountingTransactionRow[] = (
+      transactionResult.results as unknown as TransactionDbRow[]
+    ).map((row) => ({
       ...row,
+      marketplaceProvider:
+        row.marketplaceProvider === 'whatnot'
+          ? 'whatnot'
+          : row.marketplaceProvider === 'manual'
+            ? 'manual'
+            : row.marketplaceProvider === 'ebay'
+              ? 'ebay'
+              : 'other',
       amountCents: Number(row.amountCents ?? 0)
     }));
 

@@ -6,6 +6,9 @@ export type WorkspaceSummary = {
   role: 'owner' | 'admin' | 'member';
 };
 
+export type MarketplaceProvider = 'ebay' | 'whatnot';
+export type TransactionProvider = MarketplaceProvider | 'manual' | 'other';
+
 export type InventoryCategory =
   | 'action_figures'
   | 'baseball_cards'
@@ -96,6 +99,11 @@ export type AccountingTransactionRow = {
   referenceId: string | null;
   expenseCategory: ExpenseCategory | null;
   memo: string | null;
+  /**
+   * Provider-aware field added by Marketplace Foundation.
+   * Optional for backwards-compatible demo/legacy fixtures.
+   */
+  marketplaceProvider?: TransactionProvider;
 };
 
 export type SaleRow = {
@@ -119,6 +127,11 @@ export type SaleRow = {
   netProfitCents: number;
   margin: number;
   roi: number | null;
+  /**
+   * eBay/Whatnot provider for this normalized sale.
+   * Optional only so older demo fixtures remain valid.
+   */
+  marketplaceProvider?: MarketplaceProvider;
 };
 
 export type DashboardData = {
