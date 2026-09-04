@@ -2,6 +2,7 @@ export const DEFAULT_USER_ID = 'user_local_owner';
 export const DEFAULT_WORKSPACE_ID = 'workspace_default';
 
 export type WorkspaceRole = 'owner' | 'admin' | 'member';
+export type OnboardingStep = 'workspace' | 'ebay' | 'inventory' | 'complete';
 
 export type WorkspaceContext = {
   id: string;
@@ -9,6 +10,7 @@ export type WorkspaceContext = {
   slug: string;
   plan: string;
   role: WorkspaceRole;
+  onboardingStep: OnboardingStep;
 };
 
 export type AuthIdentity = {
@@ -46,10 +48,7 @@ function slugBase(value: string) {
     .slice(0, 42) || 'workspace';
 }
 
-async function linkedUser(
-  db: D1Database,
-  authUserId: string
-) {
+async function linkedUser(db: D1Database, authUserId: string) {
   return db.prepare(`
     SELECT id
     FROM users
@@ -58,12 +57,32 @@ async function linkedUser(
   `).bind(authUserId).first<{ id: string }>();
 }
 
+async function syncApplicationIdentity(
+  db: D1Database,
+  appUserId: string,
+  identity: AuthIdentity
+) {
+  await db.prepare(`
+    UPDATE users
+    SET email = ?, display_name = ?, updated_at = ?
+    WHERE id = ? AND status = 'active'
+  `).bind(
+    identity.email,
+    identity.name || identity.email,
+    new Date().toISOString(),
+    appUserId
+  ).run();
+}
+
 async function provisionApplicationUser(
   db: D1Database,
   identity: AuthIdentity
 ) {
   const existing = await linkedUser(db, identity.id);
-  if (existing) return existing.id;
+  if (existing) {
+    await syncApplicationIdentity(db, existing.id, identity);
+    return existing.id;
+  }
 
   const linkedCount = await db.prepare(`
     SELECT COUNT(*) AS count
@@ -103,7 +122,9 @@ async function provisionApplicationUser(
     if (claimed) return claimed.id;
   }
 
-  // Future open signups get a fresh isolated workspace automatically.
+  // Future open signups get a fresh isolated trial workspace. Migration 0008
+  // gives new workspaces an onboarding_step default of `workspace`, so they are
+  // routed through the setup wizard before business data is exposed.
   const appUserId = `user:${identity.id}`;
   const workspaceId = `workspace:${crypto.randomUUID()}`;
   const suffix = crypto.randomUUID().slice(0, 8);
@@ -161,6 +182,7 @@ export async function resolveTenantForAuthUser(
       w.name,
       w.slug,
       w.plan,
+      w.onboarding_step AS onboardingStep,
       wm.role
     FROM workspace_members wm
     JOIN workspaces w ON w.id = wm.workspace_id
@@ -180,7 +202,8 @@ export async function resolveTenantForAuthUser(
     userId,
     workspace: {
       ...row,
-      role: row.role as WorkspaceRole
+      role: row.role as WorkspaceRole,
+      onboardingStep: row.onboardingStep as OnboardingStep
     }
   };
 }
@@ -198,6 +221,7 @@ export async function getWorkspaceContext(
       w.name,
       w.slug,
       w.plan,
+      w.onboarding_step AS onboardingStep,
       wm.role
     FROM workspace_members wm
     JOIN workspaces w ON w.id = wm.workspace_id
@@ -209,6 +233,10 @@ export async function getWorkspaceContext(
   `).bind(locals.userId, workspaceId).first<WorkspaceContext>();
 
   return row
-    ? { ...row, role: row.role as WorkspaceRole }
+    ? {
+        ...row,
+        role: row.role as WorkspaceRole,
+        onboardingStep: row.onboardingStep as OnboardingStep
+      }
     : null;
 }

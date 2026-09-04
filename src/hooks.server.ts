@@ -1,11 +1,14 @@
 import type { Handle } from '@sveltejs/kit';
 import { building } from '$app/environment';
 import { svelteKitHandler } from 'better-auth/svelte-kit';
-import { createAuth } from '$lib/server/auth';
+import { createAuth, emailVerificationRequired } from '$lib/server/auth';
 import { resolveTenantForAuthUser } from '$lib/server/workspace';
 
 const PUBLIC_PATHS = new Set([
   '/login',
+  '/forgot-password',
+  '/reset-password',
+  '/dev/mailbox',
   '/favicon.ico',
   '/robots.txt'
 ]);
@@ -22,10 +25,25 @@ function isPublicPath(pathname: string) {
   );
 }
 
-function unauthorizedApi() {
+function isAccountPath(pathname: string) {
+  return pathname === '/account' || pathname.startsWith('/api/account/');
+}
+
+function isOnboardingPath(pathname: string) {
+  return pathname === '/onboarding' || pathname.startsWith('/api/onboarding');
+}
+
+function isOnboardingDependency(pathname: string) {
+  return (
+    pathname === '/api/ebay/connect' ||
+    pathname === '/api/ebay/callback'
+  );
+}
+
+function unauthorizedApi(message = 'Authentication required.', status = 401) {
   return Response.json(
-    { error: 'Authentication required.' },
-    { status: 401, headers: { 'cache-control': 'no-store' } }
+    { error: message },
+    { status, headers: { 'cache-control': 'no-store' } }
   );
 }
 
@@ -33,6 +51,7 @@ export const handle: Handle = async ({ event, resolve }) => {
   event.locals.authUserId = null;
   event.locals.authName = null;
   event.locals.authEmail = null;
+  event.locals.authEmailVerified = null;
   event.locals.userId = null;
   event.locals.workspaceId = null;
   event.locals.workspaceRole = null;
@@ -61,9 +80,13 @@ export const handle: Handle = async ({ event, resolve }) => {
     );
   }
 
-  const auth = createAuth(event.platform.env, event.url.origin);
+  const auth = createAuth(
+    event.platform.env,
+    event.url.origin,
+    event.platform.context
+  );
 
-  // Better Auth's official SvelteKit handler owns all /api/auth/* requests.
+  // Better Auth owns its session, verification, reset, and account endpoints.
   if (isAuthPath(pathname)) {
     return svelteKitHandler({ event, resolve, auth, building });
   }
@@ -91,6 +114,8 @@ export const handle: Handle = async ({ event, resolve }) => {
     return Response.redirect(loginURL, 303);
   }
 
+  const emailVerified = Boolean(session.user.emailVerified);
+
   const tenant = await resolveTenantForAuthUser(
     event.platform.env.DB,
     {
@@ -103,10 +128,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 
   if (!tenant) {
     if (pathname.startsWith('/api/')) {
-      return Response.json(
-        { error: 'No active Nettiva workspace membership was found.' },
-        { status: 403 }
-      );
+      return unauthorizedApi('No active Nettiva workspace membership was found.', 403);
     }
 
     return new Response(
@@ -118,6 +140,7 @@ export const handle: Handle = async ({ event, resolve }) => {
   event.locals.authUserId = session.user.id;
   event.locals.authName = session.user.name;
   event.locals.authEmail = session.user.email;
+  event.locals.authEmailVerified = emailVerified;
   event.locals.userId = tenant.userId;
   event.locals.workspaceId = tenant.workspace.id;
   event.locals.workspaceRole = tenant.workspace.role;
@@ -132,8 +155,41 @@ export const handle: Handle = async ({ event, resolve }) => {
     });
   }
 
+  const verificationRequired = emailVerificationRequired(event.platform.env);
+  if (
+    verificationRequired &&
+    !emailVerified &&
+    !publicPath &&
+    !isAccountPath(pathname)
+  ) {
+    if (pathname.startsWith('/api/')) {
+      return unauthorizedApi('Verify your email before using Nettiva business APIs.', 403);
+    }
+
+    const accountURL = new URL('/account', event.url);
+    accountURL.searchParams.set('verify', 'required');
+    return Response.redirect(accountURL, 303);
+  }
+
+  const onboardingComplete = tenant.workspace.onboardingStep === 'complete';
+  const onboardingAllowed =
+    publicPath ||
+    isOnboardingPath(pathname) ||
+    isOnboardingDependency(pathname) ||
+    isAccountPath(pathname);
+
+  if (!onboardingComplete && !onboardingAllowed) {
+    if (pathname.startsWith('/api/')) {
+      return unauthorizedApi('Finish workspace onboarding before using this API.', 409);
+    }
+    return Response.redirect(new URL('/onboarding', event.url), 303);
+  }
+
   if (pathname === '/login') {
-    return Response.redirect(new URL('/', event.url), 303);
+    return Response.redirect(
+      new URL(onboardingComplete ? '/' : '/onboarding', event.url),
+      303
+    );
   }
 
   return svelteKitHandler({ event, resolve, auth, building });

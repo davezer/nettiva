@@ -1207,7 +1207,15 @@
   font-size: .73rem;
   line-height: 1.45;
 }
-@media (max-width: 620px) {
+.account-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+.account-actions .button { white-space: nowrap; text-decoration: none; }
+@media (max-width: 760px) {
   .account-identity { grid-template-columns: auto minmax(0, 1fr); }
-  .account-identity .button { grid-column: 1 / -1; width: 100%; }
+  .account-actions { grid-column: 1 / -1; width: 100%; }
+  .account-actions .button { flex: 1; }
 }

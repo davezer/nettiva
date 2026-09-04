@@ -6,6 +6,7 @@ declare global {
       authUserId: string | null;
       authName: string | null;
       authEmail: string | null;
+      authEmailVerified: boolean | null;
       userId: string | null;
       workspaceId: string | null;
       workspaceRole: 'owner' | 'admin' | 'member' | null;
@@ -24,9 +25,13 @@ declare global {
         BETTER_AUTH_URL?: string;
         NETTIVA_SIGNUP_MODE?: string;
         NETTIVA_FOUNDER_EMAIL?: string;
+        NETTIVA_REQUIRE_EMAIL_VERIFICATION?: string;
+        NETTIVA_AUTH_EMAIL_MODE?: string;
+        NETTIVA_AUTH_EMAIL_FROM?: string;
+        RESEND_API_KEY?: string;
 
         // Legacy deployment gate. Kept typed during migration but no longer
-        // used by Auth & Tenant Enforcement v2.
+        // used by Auth & Tenant Enforcement v2+.
         NETTIVA_USERNAME?: string;
         NETTIVA_PASSWORD?: string;
       };

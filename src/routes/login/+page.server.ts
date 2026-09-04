@@ -1,9 +1,17 @@
 import type { PageServerLoad } from './$types';
-import { signupAvailability } from '$lib/server/auth';
+import {
+  emailVerificationRequired,
+  signupAvailability
+} from '$lib/server/auth';
+import { authEmailMode } from '$lib/server/email';
 
 function safeReturnTo(value: string | null) {
   if (!value || !value.startsWith('/') || value.startsWith('//')) return '/';
   return value;
+}
+
+function localHost(hostname: string) {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
 }
 
 export const load: PageServerLoad = async ({ platform, url }) => {
@@ -14,7 +22,9 @@ export const load: PageServerLoad = async ({ platform, url }) => {
       returnTo,
       canSignUp: false,
       signupMode: 'closed' as const,
-      authConfigured: false
+      authConfigured: false,
+      requiresEmailVerification: false,
+      devMailbox: false
     };
   }
 
@@ -25,7 +35,9 @@ export const load: PageServerLoad = async ({ platform, url }) => {
       returnTo,
       canSignUp: false,
       signupMode: 'closed' as const,
-      authConfigured: false
+      authConfigured: false,
+      requiresEmailVerification: false,
+      devMailbox: false
     };
   }
 
@@ -35,6 +47,9 @@ export const load: PageServerLoad = async ({ platform, url }) => {
     returnTo,
     canSignUp: availability.canSignUp,
     signupMode: availability.mode,
-    authConfigured: true
+    authConfigured: true,
+    requiresEmailVerification: emailVerificationRequired(platform.env),
+    devMailbox:
+      localHost(url.hostname) && authEmailMode(platform.env) === 'outbox'
   };
 };

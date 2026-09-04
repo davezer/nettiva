@@ -128,7 +128,7 @@
     { view: 'sales' as const, label: 'Sales', icon: BadgeDollarSign },
     { view: 'accounting' as const, label: 'Accounting', icon: Calculator },
     { view: 'reports' as const, label: 'Reports', icon: BarChart3 },
-    { view: 'settings' as const, label: 'Data & eBay', icon: Settings }
+    { view: 'settings' as const, label: 'Marketplaces & Data', icon: Settings }
   ];
 
   function inventoryCategoryLabel(category: InventoryCategory) {
@@ -1478,7 +1478,10 @@
               <strong>{data.currentUser?.name ?? 'Nettiva user'}</strong>
               <small>{data.currentUser?.email ?? 'Authenticated session'}</small>
             </div>
-            <button class="button secondary" type="button" onclick={signOutOfNettiva}><LogOut size={16} /> Sign out</button>
+            <span class="account-actions">
+              <a class="button secondary" href="/account"><ShieldCheck size={16} /> Manage account</a>
+              <button class="button secondary" type="button" onclick={signOutOfNettiva}><LogOut size={16} /> Sign out</button>
+            </span>
           </div>
           <p>Authentication proves who you are. Workspace membership decides which seller data you can access.</p>
         </article>
@@ -1486,7 +1489,7 @@
         <article class="panel workspace-settings-card">
           <span class="kicker">WORKSPACE</span>
           <h2>Business identity</h2>
-          <p>This is the tenant boundary Nettiva uses to keep inventory, accounting, eBay data, and SKU sequences isolated from every other seller.</p>
+          <p>This is the tenant boundary Nettiva uses to keep inventory, accounting, marketplace data, and SKU sequences isolated from every other seller.</p>
           <form class="workspace-settings-form" onsubmit={saveWorkspace}>
             <label><span>Workspace name</span><input bind:value={workspaceName} maxlength="80" /></label>
             <div class="workspace-meta"><span><small>Plan</small><strong>{workspaceSafe.plan}</strong></span><span><small>Role</small><strong>{workspaceSafe.role}</strong></span><span><small>Workspace ID</small><strong>{workspaceSafe.id}</strong></span></div>
@@ -1496,15 +1499,11 @@
         </article>
 
         <article class="connection-card">
-          <div class:connected={data.connected} class="connection-hero"><PlugZap size={30} /><span>{data.connected ? 'CONNECTED' : 'NOT CONNECTED'}</span></div>
-          <h2>{data.connected ? 'Your eBay store is linked' : 'Bring in your eBay business'}</h2>
-          <p>{data.connected ? 'Listings, orders, and financial transactions can sync into your private workspace.' : 'Once eBay approves API access, Nettiva will sync automatically. Your transaction-history import remains available as a backup.'}</p>
-          {#if data.connected}
-            <button class="button primary" onclick={syncNow} disabled={syncing}><RefreshCw size={17} /> Sync listings & sales</button>
-          {:else}
-            <a class="button primary" href="/api/ebay/connect"><ExternalLink size={17} /> Connect eBay securely</a>
-          {/if}
-          <small>{data.lastSyncedAt ? `Last successful sync: ${new Date(data.lastSyncedAt).toLocaleString()}` : 'No production API sync has run yet.'}</small>
+          <div class:connected={data.connected} class="connection-hero"><PlugZap size={30} /><span>MULTI-CHANNEL</span></div>
+          <h2>Marketplace hub</h2>
+          <p>eBay and Whatnot can feed the same inventory identities, COGS, accounting ledger, and reports instead of living in separate silos.</p>
+          <a class="button primary" href="/marketplaces"><ExternalLink size={17} /> Manage marketplaces</a>
+          <small>{data.connected ? 'eBay is connected through the new marketplace layer.' : 'eBay can remain pending while Nettiva builds out the Whatnot adapter.'}</small>
         </article>
 
         <article class="panel setup-checklist">
