@@ -135,8 +135,14 @@
             <span class="provider-label">MARKETPLACE</span>
             <h2>Whatnot</h2>
           </div>
-          <span class:connected={whatnot.connected} class="status">
-            {#if whatnot.connected}<Check size={13} /> Connected{:else}<PlugZap size={13} /> Foundation ready{/if}
+          <span class:connected={whatnot.connected || whatnot.orders > 0} class="status">
+            {#if whatnot.connected}
+              <Check size={13} /> Connected
+            {:else if whatnot.orders > 0}
+              <Check size={13} /> Import active
+            {:else}
+              <PlugZap size={13} /> Ready to import
+            {/if}
           </span>
         </div>
 
@@ -152,8 +158,14 @@
         </div>
 
         <div class="provider-actions">
-          <span class="connection-note upcoming"><FileSpreadsheet size={15} /> Import adapter is next</span>
-          <small>Orders / show reports first. API and webhook ingestion can plug into the same adapter later.</small>
+          <a class="button secondary" href="/import">
+            <FileSpreadsheet size={15} /> Import Weekly Orders Report
+          </a>
+          <small>
+            {whatnot.orders
+              ? `${whatnot.orders} Whatnot order${whatnot.orders === 1 ? '' : 's'} normalized into Nettiva.`
+              : 'Weekly Orders Reports work now. API and webhook ingestion can plug into the same adapter later.'}
+          </small>
         </div>
       </article>
     </section>
@@ -189,11 +201,11 @@
 
     <section class="next-card">
       <div>
-        <span class="eyebrow">NEXT ADAPTER</span>
-        <h2>Whatnot Import v1</h2>
+        <span class="eyebrow">NEXT WHATNOT LAYER</span>
+        <h2>Ledger reconciliation</h2>
         <p>
-          The next build will take official Whatnot seller exports and normalize orders, fees,
-          shipping, and sales into this new marketplace layer.
+          Weekly Orders Reports now drive sales and profit. The separate Whatnot Ledger export
+          will become the payout, tip, credit, and account-balance reconciliation feed.
         </p>
       </div>
       <PackageCheck size={34} />
@@ -315,7 +327,6 @@
     display: inline-flex; align-items: center; gap: 6px;
     color: #a5d866; font-size: .7rem; font-weight: 800;
   }
-  .connection-note.upcoming { color: #b7c4ce; }
   .architecture-card { margin-top: 18px; padding: 24px; }
   .architecture-head { display: flex; align-items: center; gap: 11px; }
   .architecture-icon {

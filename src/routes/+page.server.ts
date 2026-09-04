@@ -16,7 +16,7 @@ type WorkspaceRow = {
   inventoryCount: number;
   orderCount: number;
   transactionCount: number;
-  ebayFinancialCount: number;
+  marketplaceFinancialCount: number;
   unallocatedNetCents: number;
 };
 type InventoryDbRow = Omit<InventoryRow, 'ageDays'>;
@@ -68,12 +68,12 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
               'other_fee', 'adjustment', 'withheld_tax', 'purchase',
               'business_expense'
             )
-        ) AS ebayFinancialCount,
+        ) AS marketplaceFinancialCount,
         COALESCE((
           SELECT SUM(amount_cents)
           FROM financial_transactions
           WHERE workspace_id = ?
-            AND ebay_order_id IS NULL
+            AND external_order_id IS NULL
             AND category IN (
               'selling_fee', 'shipping_label', 'refund', 'dispute',
               'other_fee', 'adjustment', 'withheld_tax', 'purchase'
@@ -109,9 +109,9 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
         SELECT
           oi.id,
           oi.inventory_item_id AS inventoryItemId,
-          o.ebay_order_id AS ebayOrderId,
-          oi.ebay_line_item_id AS ebayLineItemId,
-          oi.ebay_item_id AS ebayItemId,
+          o.external_order_id AS ebayOrderId,
+          oi.external_line_item_id AS ebayLineItemId,
+          oi.external_item_id AS ebayItemId,
           oi.title,
           oi.sold_at AS soldAt,
           oi.sale_price_cents AS salePriceCents,
@@ -143,11 +143,12 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
         LEFT JOIN inventory_items i ON i.id = oi.inventory_item_id AND i.workspace_id = oi.workspace_id
         LEFT JOIN financial_transactions ft
           ON ft.workspace_id = ?
+          AND ft.marketplace_provider = oi.marketplace_provider
           AND (
-            ft.ebay_line_item_id = oi.ebay_line_item_id
+            ft.external_line_item_id = oi.external_line_item_id
             OR (
-              ft.ebay_line_item_id IS NULL
-              AND ft.ebay_order_id = o.ebay_order_id
+              ft.external_line_item_id IS NULL
+              AND ft.external_order_id = o.external_order_id
               AND (SELECT COUNT(*) FROM order_items oi2 WHERE oi2.workspace_id = ? AND oi2.order_id = o.id) = 1
             )
           )
@@ -164,8 +165,8 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
           transaction_type AS transactionType,
           amount_cents AS amountCents,
           currency,
-          ebay_order_id AS ebayOrderId,
-          ebay_line_item_id AS ebayLineItemId,
+          external_order_id AS ebayOrderId,
+          external_line_item_id AS ebayLineItemId,
           fee_type AS feeType,
           description,
           source,
@@ -250,7 +251,7 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
       isDemo: false,
       connected: Boolean(account),
       hasImportedData: hasWorkspaceData,
-      financialsComplete: (workspace?.ebayFinancialCount ?? 0) > 0,
+      financialsComplete: (workspace?.marketplaceFinancialCount ?? 0) > 0,
       lastSyncedAt: account?.lastSyncedAt ?? null,
       inventory,
       sales,
