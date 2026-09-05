@@ -11,7 +11,7 @@ export const POST: RequestHandler = async ({ platform, locals }) => {
   try {
     await syncEbay(platform.env, workspaceId);
   } catch (error) {
-    console.error('Nettiva eBay sync failed', error);
+    console.error('Sellquity eBay sync failed', error);
     redirect(303, '/?ebay=sync-error');
   }
 

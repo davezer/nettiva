@@ -259,7 +259,7 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
     const data: DashboardData = {
       currentUser: locals.authUserId
         ? {
-            name: locals.authName ?? locals.authEmail ?? 'Nettiva user',
+            name: locals.authName ?? locals.authEmail ?? 'Sellquity user',
             email: locals.authEmail ?? ''
           }
         : null,
@@ -279,7 +279,7 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
 
     return data;
   } catch (error) {
-    console.error('Nettiva dashboard load failed', error);
-    httpError(500, 'Could not load this Nettiva workspace.');
+    console.error('Sellquity dashboard load failed', error);
+    httpError(500, 'Could not load this Sellquity workspace.');
   }
 };

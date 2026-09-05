@@ -164,7 +164,7 @@ async function provisionApplicationUser(
 
   const created = await linkedUser(db, identity.id);
   if (!created) {
-    throw new Error('Could not provision the Nettiva application user.');
+    throw new Error('Could not provision the Sellquity application user.');
   }
   return created.id;
 }

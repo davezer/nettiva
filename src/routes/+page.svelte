@@ -700,7 +700,7 @@
       saveMessage = 'Demo inventory is not saved.';
       return;
     }
-    if (!confirm(`Delete "${editing.title}" from Nettiva inventory?`)) return;
+    if (!confirm(`Delete "${editing.title}" from Sellquity inventory?`)) return;
 
     deletingInventory = true;
     saveMessage = null;
@@ -864,7 +864,7 @@
 
   function exportPnl() {
     downloadCsv(
-      `nettiva-pnl-${reportSuffix()}.csv`,
+      `sellquity-pnl-${reportSuffix()}.csv`,
       ['Month', 'Sales', 'Gross revenue', 'Marketplace fees', 'Shipping labels', 'Refunds/disputes', 'Other adjustments', 'Business expenses', 'COGS', 'Missing COGS', 'Net profit', 'Margin %'],
       monthlyRows.map((row) => [
         row.label,
@@ -885,7 +885,7 @@
 
   function exportSales() {
     downloadCsv(
-      `nettiva-sales-${reportSuffix()}.csv`,
+      `sellquity-sales-${reportSuffix()}.csv`,
       ['Sold date', 'Marketplace', 'Order ID', 'External item ID', 'Title', 'Item price', 'Buyer shipping', 'Selling fees', 'Shipping label', 'Refunds', 'Disputes', 'Other adjustments', 'COGS', 'Profit', 'Margin %', 'ROI %'],
       filteredSales.map((sale) => [
         sale.soldAt,
@@ -910,7 +910,7 @@
 
   function exportExpenses() {
     downloadCsv(
-      `nettiva-expenses-${reportSuffix()}.csv`,
+      `sellquity-expenses-${reportSuffix()}.csv`,
       ['Date', 'Description', 'Category', 'Amount', 'Note'],
       manualExpenses.map((expense) => [
         expense.transactionDate,
@@ -924,7 +924,7 @@
 
   function exportLedger() {
     downloadCsv(
-      `nettiva-ledger-${reportSuffix()}.csv`,
+      `sellquity-ledger-${reportSuffix()}.csv`,
       ['Date', 'Marketplace', 'Category', 'Type', 'Description', 'Order ID', 'Fee type', 'Amount', 'Source', 'Expense category', 'Memo', 'Payout ID', 'Reference ID'],
       filteredTransactions.map((transaction) => [
         transaction.transactionDate,
@@ -992,11 +992,17 @@
   }
 </script>
 
+<svelte:head>
+  <title>Sellquity · Resale intelligence</title>
+</svelte:head>
+
 <div class="app-shell">
   <aside class="sidebar">
-    <div class="brand">
-      <span class="brand-mark">N</span>
-      <div><strong>NETTIVA</strong><small>Resale intelligence</small></div>
+    <div class="brand sellquity-brand">
+      <span class="brand-mark sellquity-brand-mark">
+        <img src="/s-no-bg.png" alt="" aria-hidden="true" />
+      </span>
+      <div><strong>SELLQUITY</strong><small>Resale intelligence</small></div>
     </div>
 
     <nav aria-label="Primary navigation">
@@ -1278,7 +1284,7 @@
             {#if !profitIsFinal}
               <div class="accounting-note">
                 <Info size={17} />
-                <span>{!data.financialsComplete ? 'Financial transactions are not fully loaded yet.' : `${metrics.missingCogs} sale${metrics.missingCogs === 1 ? '' : 's'} still need purchase cost. Nettiva is intentionally not calling this true net profit yet.`}</span>
+                <span>{!data.financialsComplete ? 'Financial transactions are not fully loaded yet.' : `${metrics.missingCogs} sale${metrics.missingCogs === 1 ? '' : 's'} still need purchase cost. Sellquity is intentionally not calling this true net profit yet.`}</span>
               </div>
             {/if}
           </article>
@@ -1539,7 +1545,7 @@
 
         <section class="print-report-only">
           <header>
-            <strong>NETTIVA</strong>
+            <strong>SELLQUITY</strong>
             <span>{channelLabel} · Business Performance Report</span>
           </header>
           <div class="print-summary">
@@ -1575,7 +1581,7 @@
           <div class="account-identity">
             <span class="account-avatar"><UserRound size={20} /></span>
             <div>
-              <strong>{data.currentUser?.name ?? 'Nettiva user'}</strong>
+              <strong>{data.currentUser?.name ?? 'Sellquity user'}</strong>
               <small>{data.currentUser?.email ?? 'Authenticated session'}</small>
             </div>
             <span class="account-actions">
@@ -1589,7 +1595,7 @@
         <article class="panel workspace-settings-card">
           <span class="kicker">WORKSPACE</span>
           <h2>Business identity</h2>
-          <p>This is the tenant boundary Nettiva uses to keep inventory, accounting, marketplace data, and SKU sequences isolated from every other seller.</p>
+          <p>This is the tenant boundary Sellquity uses to keep inventory, accounting, marketplace data, and SKU sequences isolated from every other seller.</p>
           <form class="workspace-settings-form" onsubmit={saveWorkspace}>
             <label><span>Workspace name</span><input bind:value={workspaceName} maxlength="80" /></label>
             <div class="workspace-meta"><span><small>Plan</small><strong>{workspaceSafe.plan}</strong></span><span><small>Role</small><strong>{workspaceSafe.role}</strong></span><span><small>Workspace ID</small><strong>{workspaceSafe.id}</strong></span></div>
@@ -1603,7 +1609,7 @@
           <h2>Marketplace hub</h2>
           <p>eBay and Whatnot can feed the same inventory identities, COGS, accounting ledger, and reports instead of living in separate silos.</p>
           <a class="button primary" href="/marketplaces"><ExternalLink size={17} /> Manage marketplaces</a>
-          <small>{data.connected ? 'eBay is connected through the new marketplace layer.' : 'eBay can remain pending while Nettiva builds out the Whatnot adapter.'}</small>
+          <small>{data.connected ? 'eBay is connected through the new marketplace layer.' : 'eBay can remain pending while Sellquity builds out the Whatnot adapter.'}</small>
         </article>
 
         <article class="panel setup-checklist">
@@ -1622,7 +1628,7 @@
         <article class="panel advanced-card">
           <span class="kicker">ADVANCED / FALLBACK</span>
           <h2>Manual transaction history</h2>
-          <p>The transaction CSV importer stays available for historical backfills, recovery, or reconciliation. We are not building Nettiva's normal workflow around CSV imports.</p>
+          <p>The transaction CSV importer stays available for historical backfills, recovery, or reconciliation. We are not building Sellquity's normal workflow around CSV imports.</p>
           <a class="button secondary" href="/import"><FileSpreadsheet size={17} /> Open transaction importer</a>
         </article>
       </section>
@@ -1661,7 +1667,7 @@
       <button class="dialog-close" aria-label="Close" onclick={() => skuManagerOpen = false}><X size={18} /></button>
       <span class="kicker">SKU CONTROL CENTER</span>
       <h2 id="sku-manager-title">Never reuse an inventory identity</h2>
-      <p class="sku-manager-intro">Bootstrap the labels already living on eBay now. Once API sync is connected, Nettiva will automatically claim SKUs from both active and scheduled listings.</p>
+      <p class="sku-manager-intro">Bootstrap the labels already living on eBay now. Once API sync is connected, Sellquity will automatically claim SKUs from both active and scheduled listings.</p>
       <div class="sku-sequence-grid">{#each skuPrefixSummary as row}<div><span>{row.label}</span><strong>{row.nextSku}</strong><small>{row.lastNumber ? `through ${row.prefix}-${String(row.lastNumber).padStart(4, '0')} already used` : 'no numbers used yet'}</small></div>{/each}</div>
       <form class="sku-bootstrap-form" onsubmit={reserveSkus}>
         <label><span>Paste existing eBay custom labels</span><textarea bind:value={skuPaste} rows="5" placeholder={"Paste the SKU column—or even messy copied Seller Hub text.\n\nAFG-0001\nAFG-0014\nMOV-0003\nELC-0002"}></textarea></label>
@@ -1670,7 +1676,7 @@
       {#if skuReserveMessage}<p class="sku-reserve-message">{skuReserveMessage}</p>{/if}
       <div class="sku-reservation-section">
         <div class="sku-reservation-heading"><div><strong>Manual bootstrap reservations</strong><small>{manualReservations.length} reservation{manualReservations.length === 1 ? '' : 's'}</small></div><span>{skuReservationsSafe.filter((row) => row.status === 'claimed').length} claimed by eBay</span></div>
-        {#if manualReservations.length}<div class="sku-reservation-list">{#each manualReservations as reservation}<div class="sku-reservation-row"><strong>{reservation.sku}</strong><span>{reservation.status === 'claimed' ? 'Claimed' : 'Reserved'}</span><small>{reservation.title ?? 'Imported from your existing SKU list'}</small>{#if reservation.status === 'reserved' && !reservation.ebayItemId && !reservation.inventoryItemId}<button type="button" class="button mini secondary" disabled={deletingReservationId === reservation.id} onclick={() => deleteSkuReservation(reservation.id, reservation.sku)}>{#if deletingReservationId === reservation.id}<LoaderCircle class="spin" size={13} />{:else}<X size={13} />{/if} Remove</button>{:else}<span class="sku-claimed-lock">Locked</span>{/if}</div>{/each}</div>{:else}<div class="empty-state compact-empty"><strong>No bootstrap reservations yet.</strong>Paste your current Seller Hub custom labels above. Nettiva will ignore labels it already knows from inventory.</div>{/if}
+        {#if manualReservations.length}<div class="sku-reservation-list">{#each manualReservations as reservation}<div class="sku-reservation-row"><strong>{reservation.sku}</strong><span>{reservation.status === 'claimed' ? 'Claimed' : 'Reserved'}</span><small>{reservation.title ?? 'Imported from your existing SKU list'}</small>{#if reservation.status === 'reserved' && !reservation.ebayItemId && !reservation.inventoryItemId}<button type="button" class="button mini secondary" disabled={deletingReservationId === reservation.id} onclick={() => deleteSkuReservation(reservation.id, reservation.sku)}>{#if deletingReservationId === reservation.id}<LoaderCircle class="spin" size={13} />{:else}<X size={13} />{/if} Remove</button>{:else}<span class="sku-claimed-lock">Locked</span>{/if}</div>{/each}</div>{:else}<div class="empty-state compact-empty"><strong>No bootstrap reservations yet.</strong>Paste your current Seller Hub custom labels above. Sellquity will ignore labels it already knows from inventory.</div>{/if}
       </div>
     </div>
   </div>
@@ -1683,7 +1689,7 @@
       <button class="dialog-close" aria-label="Close" onclick={() => intakeOpen = false}><X size={18} /></button>
       <span class="kicker">INVENTORY INTAKE</span>
       <h2 id="intake-title">Add something you bought</h2>
-      <p class="intake-intro">Capture the cost now. When this item later appears on a marketplace with the same unique SKU/custom label, Nettiva can reconcile the listing onto this record instead of creating a duplicate.</p>
+      <p class="intake-intro">Capture the cost now. When this item later appears on a marketplace with the same unique SKU/custom label, Sellquity can reconcile the listing onto this record instead of creating a duplicate.</p>
 
       <form class="intake-form" onsubmit={saveIntake}>
         <label class="wide-field">
@@ -1774,7 +1780,7 @@
             <Boxes size={17} />
             <span>
               <strong>Batch intake</strong>
-              Nettiva will create {intakeQuantity} separate inventory records at {money(Math.round((Number(intakeCost) || 0) * 100))} each so every future sale gets its own COGS trail.
+              Sellquity will create {intakeQuantity} separate inventory records at {money(Math.round((Number(intakeCost) || 0) * 100))} each so every future sale gets its own COGS trail.
             </span>
           </div>
         {/if}
@@ -1835,7 +1841,7 @@
         <label><span>Storage location</span><input bind:value={location} placeholder="A-14" /></label>
 
         {#if !editing.ebayItemId && editing.status === 'unlisted'}
-          <p class="sku-helper wide-field">Use the same SKU/custom label when you list this on a marketplace. Nettiva will use a unique match to attach the future listing without losing your cost or intake history.</p>
+          <p class="sku-helper wide-field">Use the same SKU/custom label when you list this on a marketplace. Sellquity will use a unique match to attach the future listing without losing your cost or intake history.</p>
         {/if}
         {#if saveMessage}<p class="form-message wide-field">{saveMessage}</p>{/if}
 

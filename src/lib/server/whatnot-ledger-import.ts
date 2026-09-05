@@ -192,7 +192,7 @@ export async function importWhatnotLedgerCsv(
 
   if (unsupported.length) {
     throw new Error(
-      `This Whatnot Ledger contains transaction types Nettiva does not support yet: ${unsupported.join(', ')}`
+      `This Whatnot Ledger contains transaction types Sellquity does not support yet: ${unsupported.join(', ')}`
     );
   }
 

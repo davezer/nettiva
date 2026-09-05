@@ -266,16 +266,16 @@
 </script>
 
 <svelte:head>
-  <title>COGS Desk · Nettiva</title>
+  <title>COGS Desk · Sellquity</title>
   <meta name="robots" content="noindex,nofollow" />
 </svelte:head>
 
 <div class="cogs-shell">
   <header class="topbar">
-    <a class="back" href="/"><ArrowLeft size={16} /> Nettiva</a>
+    <a class="back" href="/"><ArrowLeft size={16} /> Sellquity</a>
     <div class="workspace">
       <span>WORKSPACE</span>
-      <strong>{data.workspace?.name ?? 'Nettiva'}</strong>
+      <strong>{data.workspace?.name ?? 'Sellquity'}</strong>
     </div>
   </header>
 
@@ -488,7 +488,7 @@
     font-weight: 800;
   }
 
-  .back:hover { color: #b8f34a; }
+  .back:hover { color: #01d4a5; }
 
   .workspace {
     display: flex;
@@ -543,10 +543,10 @@
     border: 1px solid #38452c;
     border-radius: 13px;
     padding: 15px 17px;
-    background: #111910;
+    background: #0a1722;
   }
 
-  .hero-count > :global(svg) { color: #b8f34a; }
+  .hero-count > :global(svg) { color: #01d4a5; }
 
   .hero-count span {
     display: flex;
@@ -555,7 +555,7 @@
   }
 
   .hero-count small { color: #74816c; font-size: .66rem; }
-  .hero-count strong { color: #b8f34a; font-size: 1.35rem; }
+  .hero-count strong { color: #01d4a5; font-size: 1.35rem; }
 
   .toolbar {
     display: grid;
@@ -613,7 +613,7 @@
 
   .provider-tabs button.active {
     color: #0a1007;
-    background: #b8f34a;
+    background: #01d4a5;
   }
 
   .message {
@@ -667,8 +667,8 @@
     border: 0;
     border-radius: 8px;
     padding: 0 12px;
-    color: #071006;
-    background: #b8f34a;
+    color: #03131a;
+    background: #01d4a5;
     font: inherit;
     font-size: .7rem;
     font-weight: 900;
@@ -695,10 +695,10 @@
     align-items: end;
     gap: 16px;
     margin-bottom: 12px;
-    border: 1px solid #34422b;
+    border: 1px solid #173c4a;
     border-radius: 11px;
     padding: 12px;
-    background: #11190f;
+    background: #091923;
   }
 
   .selection-actions {
@@ -710,18 +710,18 @@
 
   .selection-actions strong {
     margin-right: 3px;
-    color: #b8f34a;
+    color: #01d4a5;
     font-size: .72rem;
   }
 
   .selection-actions button,
   .bulk-cost > button {
     min-height: 32px;
-    border: 1px solid #3a4932;
+    border: 1px solid #173c4a;
     border-radius: 7px;
     padding: 0 10px;
     color: #b3c0b7;
-    background: #182116;
+    background: #0b1b25;
     font: inherit;
     font-size: .66rem;
     font-weight: 800;
@@ -730,8 +730,8 @@
 
   .selection-actions button:hover,
   .bulk-cost > button:hover {
-    border-color: #647b43;
-    color: #b8f34a;
+    border-color: #11698a;
+    color: #01d4a5;
   }
 
   .bulk-cost {
@@ -767,15 +767,15 @@
   .bulk-cost input {
     width: 110px;
     height: 32px;
-    border: 1px solid #3a4932;
+    border: 1px solid #173c4a;
     border-radius: 7px;
     padding: 0 9px 0 23px;
     outline: 0;
     color: #e8eee9;
-    background: #0c130b;
+    background: #07131c;
   }
 
-  .bulk-cost input:focus { border-color: #6a8247; }
+  .bulk-cost input:focus { border-color: #11698a; }
   .bulk-cost > button:disabled { opacity: .4; cursor: not-allowed; }
 
   .rows { display: grid; gap: 8px; }
@@ -792,8 +792,8 @@
   }
 
   .row.selected {
-    border-color: #526a35;
-    background: #0f170d;
+    border-color: #14516a;
+    background: #081720;
   }
 
   .row-select {
@@ -804,7 +804,7 @@
   .row-select input {
     width: 16px;
     height: 16px;
-    accent-color: #b8f34a;
+    accent-color: #01d4a5;
     cursor: pointer;
   }
 
@@ -848,7 +848,7 @@
 
   .provider.whatnot {
     border-color: #4c632f;
-    color: #b8f34a;
+    color: #01d4a5;
     background: #17200f;
   }
 
@@ -884,8 +884,8 @@
     border: 0;
     border-radius: 8px;
     padding: 0 12px;
-    color: #071006;
-    background: #b8f34a;
+    color: #03131a;
+    background: #01d4a5;
     font: inherit;
     font-size: .72rem;
     font-weight: 900;

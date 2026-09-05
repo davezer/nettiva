@@ -225,7 +225,7 @@ export async function importWhatnotWeeklyCsv(
 
   if (unsupported.length) {
     throw new Error(
-      `This Whatnot report contains transaction types Nettiva does not support yet: ${unsupported.join(', ')}`
+      `This Whatnot report contains transaction types Sellquity does not support yet: ${unsupported.join(', ')}`
     );
   }
 

@@ -149,18 +149,18 @@
 </script>
 
 <svelte:head>
-  <title>Import marketplace data · Nettiva</title>
+  <title>Import marketplace data · Sellquity</title>
 </svelte:head>
 
 <main class="import-shell">
-  <a class="back" href="/">← Back to Nettiva</a>
+  <a class="back" href="/">← Back to Sellquity</a>
 
   <section class="card">
-    <span class="eyebrow">NETTIVA · MARKETPLACE IMPORTS</span>
+    <span class="eyebrow">SELLQUITY · MARKETPLACE IMPORTS</span>
     <h1>Bring in seller history</h1>
     <p class="intro">
       Marketplace exports feed the same normalized reseller workspace.
-      Re-importing the same report is safe: Nettiva uses deterministic marketplace identities.
+      Re-importing the same report is safe: Sellquity uses deterministic marketplace identities.
     </p>
 
     <div class="marketplace-tabs">
@@ -205,7 +205,7 @@
       {#if whatnotMode === 'orders'}
         <div class="report-note">
           <strong>Weekly Orders Reports drive P&amp;L.</strong>
-          Nettiva uses them for gross sales, marketplace fees, seller-paid shipping, SKU matching,
+          Sellquity uses them for gross sales, marketplace fees, seller-paid shipping, SKU matching,
           and COGS.
         </div>
       {:else}
@@ -379,7 +379,7 @@
   }
 
   .eyebrow {
-    color: #b8f34a;
+    color: #01d4a5;
     font-size: 11px;
     font-weight: 850;
     letter-spacing: .14em;
@@ -433,9 +433,9 @@
 
   .marketplace-tabs button.active,
   .whatnot-modes button.active {
-    border-color: #657d3d;
-    box-shadow: 0 0 0 1px #657d3d55;
-    background: #111910;
+    border-color: #11698a;
+    box-shadow: 0 0 0 1px #11698a55;
+    background: #0a1722;
   }
 
   .marketplace-tabs button > span:last-child {
@@ -459,7 +459,7 @@
     font-weight: 950;
   }
 
-  .whatnot-mark { background: #b8f34a; color: #091006; }
+  .whatnot-mark { background: #01d4a5; color: #03131a; }
   .ebay-mark { background: #eef3f6; color: #14202a; }
 
   .report-note {
@@ -500,8 +500,8 @@
     border: 0;
     border-radius: 10px;
     padding: 13px 18px;
-    background: #b8f34a;
-    color: #081007;
+    background: #01d4a5;
+    color: #03131a;
     font: inherit;
     font-weight: 900;
     text-decoration: none;
@@ -574,7 +574,7 @@
     text-decoration: none;
   }
 
-  .secondary-link:hover { color: #b8f34a; }
+  .secondary-link:hover { color: #01d4a5; }
 
   @media (max-width: 640px) {
     .card { padding: 24px; }

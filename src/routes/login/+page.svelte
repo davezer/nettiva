@@ -86,7 +86,7 @@
 </script>
 
 <svelte:head>
-  <title>Sign in · Nettiva</title>
+  <title>Sign in · Sellquity</title>
   <meta name="robots" content="noindex,nofollow" />
 </svelte:head>
 
@@ -95,17 +95,16 @@
   <div class="auth-ambient ambient-two"></div>
 
   <main class="auth-card">
-    <header class="auth-brand">
-      <span class="auth-mark">N</span>
-      <div>
-        <strong>NETTIVA</strong>
-        <small>Resale intelligence</small>
+    <header class="auth-brand sellquity-auth-brand">
+      <div class="sellquity-wordmark-panel">
+        <img src="/sellquity-no-bg.png" alt="Sellquity" />
       </div>
+      <small>Resale intelligence</small>
     </header>
 
     <section class="auth-copy">
       <span class="auth-kicker">{createMode ? 'FOUNDER SETUP' : 'SECURE ACCESS'}</span>
-      <h1>{createMode ? 'Create your Nettiva account' : 'Welcome back'}</h1>
+      <h1>{createMode ? 'Create your Sellquity account' : 'Welcome back'}</h1>
       <p>
         {createMode
           ? 'This account will claim the existing founder workspace and become its owner.'
@@ -118,7 +117,7 @@
         <LockKeyhole size={18} />
         <span>
           <strong>Local auth needs one secret.</strong>
-          Add <code>BETTER_AUTH_SECRET</code> to <code>.dev.vars</code>, then restart Nettiva.
+          Add <code>BETTER_AUTH_SECRET</code> to <code>.dev.vars</code>, then restart Sellquity.
         </span>
       </div>
     {/if}
@@ -187,7 +186,7 @@
         }}
         type="button"
       >
-        {createMode ? 'Already have an account? Sign in' : 'New to Nettiva? Create an account'}
+        {createMode ? 'Already have an account? Sign in' : 'New to Sellquity? Create an account'}
       </button>
     {:else if data.signupMode === 'founder' && data.canSignUp}
       <p class="founder-note">Founder setup is enabled for the first account only.</p>
@@ -218,7 +217,7 @@
     opacity: .13;
     pointer-events: none;
   }
-  .ambient-one { top: -180px; right: 8%; background: #b8f34a; }
+  .ambient-one { top: -180px; right: 8%; background: #01d4a5; }
   .ambient-two { bottom: -220px; left: 5%; background: #35c9ff; }
   .auth-card {
     position: relative;
@@ -242,8 +241,8 @@
     display: grid;
     place-items: center;
     border-radius: 9px;
-    color: #081007;
-    background: #b8f34a;
+    color: #03131a;
+    background: #01d4a5;
     font-weight: 950;
     font-size: 1.15rem;
   }
@@ -252,7 +251,7 @@
   .auth-brand small { color: #687581; font-size: .67rem; }
   .auth-copy { padding: 24px 0 18px; }
   .auth-kicker {
-    color: #b8f34a;
+    color: #01d4a5;
     font: 800 .67rem "SFMono-Regular", Consolas, monospace;
     letter-spacing: .14em;
   }
@@ -262,7 +261,7 @@
   label { display: grid; gap: 6px; color: #aeb8c1; font-size: .75rem; font-weight: 700; }
   .password-label { display: flex; justify-content: space-between; gap: 12px; }
   .password-label a { color: #8fa2b0; font-size: .68rem; text-decoration: none; }
-  .password-label a:hover { color: #b8f34a; }
+  .password-label a:hover { color: #01d4a5; }
   .auth-input {
     height: 43px;
     display: flex;
@@ -293,8 +292,8 @@
     margin-top: 3px;
     border: 0;
     border-radius: 9px;
-    background: #b8f34a;
-    color: #091006;
+    background: #01d4a5;
+    color: #03131a;
     font-weight: 900;
     cursor: pointer;
   }
@@ -325,9 +324,9 @@
     font-size: .72rem;
   }
   .auth-message.success {
-    border-color: #355327;
-    color: #c5e99a;
-    background: #172313;
+    border-color: #15545a;
+    color: #78f6dd;
+    background: #0b252a;
   }
   .mailbox-link,
   .mode-switch {
@@ -343,8 +342,39 @@
     cursor: pointer;
   }
   .mailbox-link:hover,
-  .mode-switch:hover { color: #b8f34a; }
+  .mode-switch:hover { color: #01d4a5; }
   .founder-note { margin: 15px 0 0; color: #5f6c78; text-align: center; font-size: .68rem; }
   :global(.spin) { animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+
+  .sellquity-auth-brand {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .sellquity-wordmark-panel {
+    width: min(250px, 78vw);
+    display: flex;
+    align-items: center;
+    border: 1px solid #1b4f75;
+    border-radius: 14px;
+    padding: 8px 13px;
+    background: linear-gradient(145deg, #ffffff 0%, #eef8ff 100%);
+    box-shadow: 0 14px 34px #0069e326, 0 0 0 1px #01d0e90d;
+  }
+
+  .sellquity-wordmark-panel img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  .sellquity-auth-brand > small {
+    color: #8296ad;
+    font-size: .72rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+  }
 </style>

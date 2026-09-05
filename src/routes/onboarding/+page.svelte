@@ -95,21 +95,21 @@
 </script>
 
 <svelte:head>
-  <title>Set up your workspace · Nettiva</title>
+  <title>Set up your workspace · Sellquity</title>
   <meta name="robots" content="noindex,nofollow" />
 </svelte:head>
 
 <div class="shell">
   <header>
-    <a class="brand" href="/"><span>N</span><strong>NETTIVA</strong></a>
+    <a class="brand" href="/"><span class="sellquity-icon-mark"><img src="/s-no-bg.png" alt="" aria-hidden="true" /></span><strong>SELLQUITY</strong></a>
     <a class="account" href="/account">Account & security</a>
   </header>
 
   <main>
     <section class="intro">
       <span class="kicker">WORKSPACE ONBOARDING</span>
-      <h1>{step === 'complete' ? 'Your workspace is ready.' : 'Set Nettiva up around your business.'}</h1>
-      <p>This wizard creates the minimum business context Nettiva needs before automated marketplace data starts flowing.</p>
+      <h1>{step === 'complete' ? 'Your workspace is ready.' : 'Set Sellquity up around your business.'}</h1>
+      <p>This wizard creates the minimum business context Sellquity needs before automated marketplace data starts flowing.</p>
     </section>
 
     <div class="progress" aria-label="Onboarding progress">
@@ -146,7 +146,7 @@
         <p>
           {data.connected
             ? 'This workspace already has an encrypted eBay OAuth connection. You can continue.'
-            : 'Connecting eBay will eventually let Nettiva pull listings, scheduled listings, orders, and finances directly. You can skip this while API approval is pending.'}
+            : 'Connecting eBay will eventually let Sellquity pull listings, scheduled listings, orders, and finances directly. You can skip this while API approval is pending.'}
         </p>
 
         <div class="ebay-state" class:connected={data.connected}>
@@ -174,7 +174,7 @@
         <div class="icon"><Boxes size={24} /></div>
         <span class="kicker">STEP 3 OF 3</span>
         <h2>Inventory identity</h2>
-        <p>Nettiva uses stable SKU/custom-label identities so purchase cost survives listing-title changes and future eBay reconciliation.</p>
+        <p>Sellquity uses stable SKU/custom-label identities so purchase cost survives listing-title changes and future eBay reconciliation.</p>
 
         <div class="stats">
           <div><Boxes size={18} /><span><strong>{data.inventoryCount}</strong> inventory records</span></div>
@@ -200,7 +200,7 @@
         <h2>{data.workspace?.name ?? 'Your workspace'} is ready</h2>
         <p>Authentication, tenant isolation, recovery infrastructure, and workspace onboarding are all in place.</p>
         <div class="actions center">
-          <a class="primary link-button" href="/">Open Nettiva</a>
+          <a class="primary link-button" href="/">Open Sellquity</a>
           <button class="secondary" disabled={busy} onclick={restart}><RefreshCw size={16} /> Run wizard again</button>
         </div>
       </section>
@@ -213,42 +213,42 @@
   .shell { min-height: 100vh; background: #080c10; color: #e7eee8; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
   header { height: 62px; display: flex; align-items: center; justify-content: space-between; padding: 0 28px; border-bottom: 1px solid #202a33; background: #0b1015; }
   .brand { display: flex; align-items: center; gap: 9px; color: #eaf0eb; text-decoration: none; letter-spacing: .1em; font-size: .8rem; }
-  .brand span { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 7px; background: #b8f34a; color: #081006; font-weight: 950; }
+  .brand span { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 7px; background: #01d4a5; color: #03131a; font-weight: 950; }
   .account { color: #82909c; text-decoration: none; font-size: .72rem; }
-  .account:hover { color: #b8f34a; }
+  .account:hover { color: #01d4a5; }
   main { width: min(660px, calc(100% - 32px)); margin: 0 auto; padding: 54px 0 80px; }
   .intro { text-align: center; margin-bottom: 24px; }
-  .kicker { color: #b8f34a; font: 800 .65rem Consolas, monospace; letter-spacing: .13em; }
+  .kicker { color: #01d4a5; font: 800 .65rem Consolas, monospace; letter-spacing: .13em; }
   h1 { margin: 8px 0 10px; font-size: clamp(2rem, 6vw, 3.1rem); line-height: 1.02; letter-spacing: -.045em; }
   .intro p, .card > p { color: #7e8a95; font-size: .79rem; line-height: 1.6; }
   .progress { display: flex; align-items: center; justify-content: center; margin: 28px 0; }
   .progress span { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid #35414c; border-radius: 99px; color: #71808c; background: #0d1318; font-size: .72rem; font-weight: 850; }
-  .progress span.active, .progress span.done { border-color: #769e3c; color: #0b1208; background: #b8f34a; }
+  .progress span.active, .progress span.done { border-color: #0a8fc4; color: #0b1208; background: #01d4a5; }
   .progress i { width: 58px; height: 1px; background: #2b363f; }
-  .progress i.done { background: #769e3c; }
+  .progress i.done { background: #0a8fc4; }
   .card { position: relative; border: 1px solid #2b3741; border-radius: 16px; padding: 26px; background: #0e141a; box-shadow: 0 30px 90px #0006; }
-  .icon, .complete-icon { width: 46px; height: 46px; display: grid; place-items: center; margin-bottom: 18px; border-radius: 11px; color: #b8f34a; background: #1a2814; }
+  .icon, .complete-icon { width: 46px; height: 46px; display: grid; place-items: center; margin-bottom: 18px; border-radius: 11px; color: #01d4a5; background: #0c2730; }
   h2 { margin: 6px 0 8px; font-size: 1.42rem; }
   form { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; margin-top: 20px; }
   label { display: grid; gap: 6px; color: #aab4bd; font-size: .72rem; font-weight: 700; }
   .wide { grid-column: 1 / -1; }
   input { width: 100%; box-sizing: border-box; border: 1px solid #35414c; border-radius: 8px; padding: 10px 11px; outline: 0; background: #090e13; color: #edf3ee; font: inherit; text-transform: none; }
   label:not(.wide) input { text-transform: uppercase; }
-  input:focus { border-color: #779f3d; box-shadow: 0 0 0 1px #779f3d55; }
+  input:focus { border-color: #0a8fc4; box-shadow: 0 0 0 1px #0a8fc455; }
   button, .link-button { min-height: 42px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border-radius: 8px; padding: 0 14px; font: inherit; font-size: .73rem; font-weight: 850; text-decoration: none; cursor: pointer; }
   button:disabled { opacity: .45; cursor: not-allowed; }
-  .primary { border: 0; background: #b8f34a; color: #091006; }
+  .primary { border: 0; background: #01d4a5; color: #03131a; }
   .secondary { border: 1px solid #384550; background: #121920; color: #c7d0d7; }
   .actions { display: flex; gap: 9px; flex-wrap: wrap; margin-top: 20px; }
   .actions.center { justify-content: center; }
   .full { width: 100%; margin-top: 18px; }
   .ebay-state, .stats > div, .convention { border: 1px solid #303c46; border-radius: 10px; background: #0a1015; }
   .ebay-state { display: flex; align-items: flex-start; gap: 9px; margin-top: 18px; padding: 12px; color: #8f9aa4; font-size: .72rem; }
-  .ebay-state.connected { border-color: #365329; color: #b8d88f; background: #151f12; }
+  .ebay-state.connected { border-color: #15545a; color: #b8d88f; background: #151f12; }
   .ebay-state span { display: flex; flex-direction: column; gap: 2px; }
   .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 18px 0 10px; }
   .stats > div { display: flex; align-items: center; gap: 9px; padding: 13px; color: #87949f; font-size: .72rem; }
-  .stats :global(svg) { color: #b8f34a; }
+  .stats :global(svg) { color: #01d4a5; }
   .stats strong { color: #e5ece6; font-size: 1rem; }
   .convention { padding: 14px; }
   .convention > strong { color: #dfe7e1; font-size: .78rem; }
@@ -260,4 +260,20 @@
   :global(.spin) { animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
   @media (max-width: 560px) { header { padding: 0 16px; } form { grid-template-columns: 1fr; } .wide { grid-column: auto; } .stats { grid-template-columns: 1fr; } }
+
+
+  .sellquity-icon-mark {
+    overflow: hidden;
+    padding: 0 !important;
+    background: linear-gradient(145deg, #071c31, #0b2840) !important;
+    border: 1px solid #185778 !important;
+    box-shadow: 0 8px 24px #0069e326 !important;
+  }
+
+  .sellquity-icon-mark img {
+    width: 88%;
+    height: 88%;
+    display: block;
+    object-fit: contain;
+  }
 </style>

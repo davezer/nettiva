@@ -1,0 +1,474 @@
+:root {
+  --sq-navy: #021f58;
+  --sq-blue: #0069e3;
+  --sq-cyan: #01d0e9;
+  --sq-teal: #01d4a5;
+  --sq-bg: #050b14;
+  --sq-bg-2: #07111d;
+  --sq-panel: #0a1423;
+  --sq-panel-2: #0e1b2e;
+  --sq-border: #19314f;
+  --sq-border-strong: #214b70;
+  --sq-text: #f4f8ff;
+  --sq-muted: #8da0ba;
+  --sq-gradient: linear-gradient(135deg, #0069e3 0%, #01d0e9 56%, #01d4a5 100%);
+}
+
+html { background: var(--sq-bg); }
+
+body {
+  background:
+    radial-gradient(circle at 72% -18%, #0069e31f 0, transparent 34rem),
+    radial-gradient(circle at 22% 105%, #01d4a50d 0, transparent 30rem),
+    var(--sq-bg);
+  color: var(--sq-text);
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline-color: var(--sq-cyan) !important;
+}
+
+.sidebar {
+  border-right-color: #17304a !important;
+  background:
+    radial-gradient(circle at 0 0, #0069e314 0, transparent 18rem),
+    linear-gradient(180deg, #081422 0%, #060d16 100%) !important;
+}
+
+.sellquity-brand { gap: 10px !important; }
+
+.sellquity-brand-mark {
+  width: 44px !important;
+  height: 44px !important;
+  overflow: hidden;
+  padding: 0 !important;
+  border: 1px solid #1b5b7d;
+  border-radius: 12px !important;
+  background: linear-gradient(145deg, #071c31, #0b2840) !important;
+  box-shadow: 0 10px 28px #0069e326, 0 0 20px #01d0e914 !important;
+}
+
+.sellquity-brand-mark img {
+  width: 90%;
+  height: 90%;
+  display: block;
+  object-fit: contain;
+}
+
+.brand strong { color: #f7fbff; }
+.brand small { color: #6f8daa !important; }
+
+.sidebar nav button:hover {
+  color: #fff !important;
+  background: #0e2032 !important;
+}
+
+.sidebar nav button.active {
+  color: #f7fbff !important;
+  background: linear-gradient(90deg, #0069e31c, #01d0e90a) !important;
+  box-shadow: inset 3px 0 var(--sq-cyan) !important;
+}
+
+.sidebar nav button.active svg { color: var(--sq-cyan) !important; }
+.connection-dot.online { background: var(--sq-teal) !important; box-shadow: 0 0 10px #01d4a588 !important; }
+
+.eyebrow,
+.kicker { color: var(--sq-teal) !important; }
+
+.button.primary {
+  border-color: #01d0e950 !important;
+  background: var(--sq-gradient) !important;
+  color: #03131a !important;
+  box-shadow: 0 8px 24px #0069e329, 0 0 16px #01d4a514 !important;
+}
+
+.button.primary:hover {
+  box-shadow: 0 10px 30px #0069e33d, 0 0 22px #01d0e91f !important;
+}
+
+.button.secondary {
+  border-color: #244663 !important;
+  background: linear-gradient(180deg, #101e2d, #0c1723) !important;
+  color: #bfd0df !important;
+}
+
+.button.secondary:hover { border-color: #1c7193 !important; color: #ecfbff !important; }
+
+.metric-card,
+.panel {
+  border-color: var(--sq-border) !important;
+  background: linear-gradient(145deg, #0d1928 0%, #09131f 100%) !important;
+  box-shadow: 0 12px 38px #0000002b !important;
+}
+
+.metric-card:hover { border-color: #1e5574 !important; }
+.tone-green .metric-top svg { color: var(--sq-teal) !important; }
+.tone-blue .metric-top svg { color: var(--sq-cyan) !important; }
+.tone-violet .metric-top svg { color: var(--sq-blue) !important; }
+
+.panel-heading > button:hover,
+.attention-panel button:hover > svg,
+.margin-footer svg,
+.margin-footer strong,
+.item-fallback,
+.profit { color: var(--sq-teal) !important; }
+
+.bar-track span {
+  background: var(--sq-gradient) !important;
+  box-shadow: 0 0 14px #01d0e940 !important;
+}
+
+thead { background: #07111b !important; }
+tr { border-bottom-color: #172b3d !important; }
+tbody tr:hover { background: #0d1c2a !important; }
+.table-heading { border-bottom-color: #1a3248 !important; }
+
+input,
+textarea,
+select {
+  border-color: #24445f !important;
+  background: #07111b !important;
+  color: #eef8ff !important;
+}
+
+input:focus,
+textarea:focus,
+select:focus { border-color: #1682a5 !important; }
+
+.filter-tabs,
+.channel-presets {
+  border-color: #1c3a52 !important;
+  background: #07111b !important;
+}
+
+.filter-tabs button.active,
+.channel-presets button.active {
+  background: var(--sq-gradient) !important;
+  color: #03131a !important;
+}
+
+.read-only {
+  color: #63e7d1 !important;
+  border-color: #18545d !important;
+  background: #09272b88 !important;
+}
+
+.status-active {
+  color: #5aecd5 !important;
+  background: #0b292c !important;
+}
+
+.status-sold { color: #65e8ff !important; background: #0b2733 !important; }
+
+.connection-card {
+  border-color: #1a3c55 !important;
+  background:
+    radial-gradient(circle at 70% 20%, #0069e31c 0, transparent 17rem),
+    linear-gradient(145deg, #0e1b29, #09131e) !important;
+}
+
+.sale-title-line .marketplace-pill,
+.marketplace-pill {
+  border-color: #244b68 !important;
+  background: #0b1b29 !important;
+}
+
+.marketplace-pill.whatnot {
+  border-color: #146070 !important;
+  color: var(--sq-teal) !important;
+  background: #08262b !important;
+}
+
+.cost-missing-pill { border-color: #6f5223 !important; }
+
+.date-toolbar {
+  border-color: #1d374e !important;
+  background: linear-gradient(180deg, #0c1825, #09131e) !important;
+}
+
+.channel-presets button.active,
+.date-presets button.active { box-shadow: 0 3px 12px #0069e31f !important; }
+
+/* Stronger Sellquity visual identity without turning the product into a neon UI. */
+.topbar h1,
+.metric-card > strong,
+.panel-heading h2 { color: #f5faff; }
+
+/* =========================================================
+   Sellquity Theme Polish v1
+   Normalize the remaining legacy lime/green interaction states.
+   Warning amber and destructive red intentionally remain semantic.
+   ========================================================= */
+
+/* Shared active controls */
+.date-presets button.active,
+.filter-tabs button.active,
+.channel-presets button.active {
+  border-color: transparent !important;
+  background: var(--sq-gradient) !important;
+  color: #03131a !important;
+  box-shadow:
+    0 5px 16px #0069e32e,
+    inset 0 0 0 1px #01d0e926 !important;
+}
+
+.date-presets button:hover:not(.active),
+.filter-tabs button:hover:not(.active),
+.channel-presets button:hover:not(.active) {
+  color: #d9f8ff !important;
+  background: #0d2232 !important;
+}
+
+/* Reporting / accounting toolbar */
+.date-toolbar {
+  border-color: #17344c !important;
+  background:
+    linear-gradient(180deg, #0b1826 0%, #08131f 100%) !important;
+}
+
+.date-toolbar > span {
+  color: #8298ad !important;
+}
+
+.toolbar-divider {
+  background: #20415b !important;
+}
+
+.channel-scope-note {
+  color: #68d9dc !important;
+}
+
+/* Accounting P&L positive states */
+.pnl-row.total {
+  border-top-color: #17636d !important;
+}
+
+.pnl-row.total strong,
+.pnl-row .credit,
+.ledger-amount.credit {
+  color: var(--sq-teal) !important;
+}
+
+.ledger-category.sale {
+  color: #60ecd6 !important;
+  background: #0a292d !important;
+}
+
+/* COGS success */
+.cogs-complete {
+  border-color: #165564 !important;
+  color: #6ce8d7 !important;
+  background: #09262d !important;
+}
+
+/* Sale row / drilldown interaction */
+.sale-button:hover strong {
+  color: var(--sq-cyan) !important;
+}
+
+.money-flow-heading > span {
+  color: #03131a !important;
+  background: var(--sq-gradient) !important;
+  box-shadow: 0 4px 12px #0069e329 !important;
+}
+
+.money-flow-result {
+  border-color: #176174 !important;
+  background:
+    radial-gradient(circle at 12% 0%, #01d4a50d 0, transparent 15rem),
+    linear-gradient(135deg, #09242d 0%, #081922 100%) !important;
+}
+
+.money-flow-result span {
+  color: #6f9cad !important;
+}
+
+.money-flow-result > div:first-child > strong {
+  color: var(--sq-teal) !important;
+}
+
+.money-flow-result .result-stat {
+  border-left-color: #17465a !important;
+}
+
+@media (max-width: 430px) {
+  .money-flow-result .result-stat {
+    border-top-color: #17465a !important;
+  }
+}
+
+/* Expense save confirmation */
+.expense-message {
+  color: #72e8d9 !important;
+  background: #08242b !important;
+  border-bottom-color: #17465a !important;
+}
+
+/* Reports */
+.report-hero {
+  background:
+    radial-gradient(circle at 80% 20%, #0069e31c 0, transparent 18rem),
+    radial-gradient(circle at 12% 110%, #01d4a50b 0, transparent 16rem),
+    linear-gradient(145deg, #0d1b2a 0%, #09131f 100%) !important;
+}
+
+.report-bar span {
+  background: var(--sq-gradient) !important;
+  box-shadow: 0 0 12px #01d0e92e !important;
+}
+
+/* Generic positive/success classes from legacy styles */
+.profit,
+.credit:not(.ledger-category),
+.margin-footer strong,
+.margin-footer svg {
+  color: var(--sq-teal) !important;
+}
+
+/* Tables / rows */
+tbody tr:hover {
+  background:
+    linear-gradient(90deg, #0069e30a, #01d0e905),
+    #0c1b29 !important;
+}
+
+/* Cards get a subtle branded hover, not a loud neon glow */
+.metric-card,
+.panel {
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
+}
+
+.metric-card:hover,
+.panel:hover {
+  border-color: #1b4966 !important;
+}
+
+.metric-card:hover {
+  box-shadow:
+    0 14px 40px #00000031,
+    0 0 0 1px #0069e30a !important;
+}
+
+/* Input focus treatment */
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: #1985a8 !important;
+  box-shadow: 0 0 0 3px #01d0e910 !important;
+}
+
+/* Secondary controls */
+.button.secondary:hover {
+  border-color: #19789b !important;
+  background: linear-gradient(180deg, #10283a, #0b1b2a) !important;
+}
+
+.button.primary:active,
+.date-presets button.active:active,
+.filter-tabs button.active:active,
+.channel-presets button.active:active {
+  transform: translateY(0) !important;
+  filter: brightness(.96);
+}
+
+/* Marketplace/provider badges */
+.marketplace-pill {
+  color: #a9c3d6 !important;
+}
+
+.marketplace-pill.whatnot {
+  color: #62ead5 !important;
+}
+
+.marketplace-pill.manual {
+  border-color: #5a4b31 !important;
+  color: #d7b56f !important;
+  background: #251f14 !important;
+}
+
+/* Keep attention semantics distinct from brand */
+.attention-icon.amber,
+.missing,
+.queue-note,
+.cost-missing-pill {
+  /* intentionally amber */
+}
+
+.attention-icon.red,
+.age-stale,
+.negative {
+  /* intentionally red */
+}
+
+/* Brand accents */
+.brand strong,
+.topbar h1 {
+  text-shadow: 0 0 24px #0069e314;
+}
+
+.eyebrow,
+.kicker {
+  text-shadow: 0 0 15px #01d4a51c;
+}
+
+/* Scrollbars */
+* {
+  scrollbar-color: #244f6b #07111b;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #244f6b;
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #07111b;
+}
+
+/* Selection */
+::selection {
+  color: #f4fbff;
+  background: #007edb80;
+}
+
+/* =========================================================
+   Sellquity Inventory Accent Polish v1
+   Remove the last olive/yellow legacy accents from inventory rows.
+   ========================================================= */
+
+.item-category {
+  color: var(--sq-teal) !important;
+  font-weight: 800;
+}
+
+.item-avatar {
+  border-color: #205273 !important;
+  box-shadow: inset 0 0 0 1px #01d0e908;
+}
+
+.item-avatar.item-fallback,
+.item-fallback {
+  color: #72f2df !important;
+  border-color: #1b617d !important;
+  background:
+    radial-gradient(circle at 75% 20%, #01d4a51c 0, transparent 2.8rem),
+    linear-gradient(145deg, #092842 0%, #071a2c 100%) !important;
+  box-shadow:
+    inset 0 0 0 1px #01d0e90d,
+    0 4px 14px #0069e317 !important;
+}
+
+tbody tr:hover .item-avatar.item-fallback {
+  border-color: #1686a8 !important;
+  box-shadow:
+    inset 0 0 0 1px #01d0e91c,
+    0 5px 18px #0069e324 !important;
+}
+

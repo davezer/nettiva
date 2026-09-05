@@ -57,16 +57,16 @@
 </script>
 
 <svelte:head>
-  <title>Marketplaces · Nettiva</title>
+  <title>Marketplaces · Sellquity</title>
   <meta name="robots" content="noindex,nofollow" />
 </svelte:head>
 
 <div class="marketplace-shell">
   <header class="marketplace-topbar">
-    <a href="/" class="back-link"><ArrowLeft size={16} /> Nettiva</a>
+    <a href="/" class="back-link"><ArrowLeft size={16} /> Sellquity</a>
     <div class="workspace-chip">
       <span>WORKSPACE</span>
-      <strong>{data.workspace?.name ?? 'Nettiva'}</strong>
+      <strong>{data.workspace?.name ?? 'Sellquity'}</strong>
     </div>
   </header>
 
@@ -76,7 +76,7 @@
         <span class="eyebrow">MARKETPLACE HUB</span>
         <h1>One reseller business.<br />Multiple sales channels.</h1>
         <p>
-          eBay, Whatnot, and future marketplaces normalize into the same Nettiva inventory,
+          eBay, Whatnot, and future marketplaces normalize into the same Sellquity inventory,
           COGS, accounting, and reporting engine.
         </p>
       </div>
@@ -123,7 +123,7 @@
           <small>
             {ebay.lastSyncedAt
               ? `Last sync ${new Date(ebay.lastSyncedAt).toLocaleString()}`
-              : 'Nettiva can keep using transaction imports while API access is unavailable.'}
+              : 'Sellquity can keep using transaction imports while API access is unavailable.'}
           </small>
         </div>
       </article>
@@ -147,7 +147,7 @@
         </div>
 
         <p>
-          Whatnot will share Nettiva's existing inventory identities instead of creating a second
+          Whatnot will share Sellquity's existing inventory identities instead of creating a second
           copy of every item. A sale on either marketplace can ultimately close the same SKU.
         </p>
 
@@ -168,7 +168,7 @@
           </div>
           <small>
             {whatnot.orders
-              ? `${whatnot.orders} Whatnot order${whatnot.orders === 1 ? '' : 's'} normalized into Nettiva. Orders drive P&L; Ledger drives balance reconciliation.`
+              ? `${whatnot.orders} Whatnot order${whatnot.orders === 1 ? '' : 's'} normalized into Sellquity. Orders drive P&L; Ledger drives balance reconciliation.`
               : 'Weekly Orders Reports and Ledger exports can now feed separate parts of the same Whatnot accounting trail.'}
           </small>
         </div>
@@ -192,7 +192,7 @@
         <span class="flow-arrow">→</span>
         <div><strong>Marketplace adapter</strong><small>Normalize IDs + money + events</small></div>
         <span class="flow-arrow">→</span>
-        <div class="nettiva-core"><strong>Nettiva core</strong><small>Inventory · COGS · Accounting</small></div>
+        <div class="nettiva-core"><strong>Sellquity core</strong><small>Inventory · COGS · Accounting</small></div>
       </div>
 
       <div class="foundation-checks">
@@ -239,7 +239,7 @@
     font-size: .78rem;
     font-weight: 800;
   }
-  .back-link:hover { color: #b8f34a; }
+  .back-link:hover { color: #01d4a5; }
   .workspace-chip { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
   .workspace-chip span, .eyebrow, .provider-label {
     color: #788591;
@@ -274,7 +274,7 @@
     border-right: 1px solid #28333d;
   }
   .hero-summary > span:last-child { border-right: 0; }
-  .hero-summary :global(svg) { color: #b8f34a; }
+  .hero-summary :global(svg) { color: #01d4a5; }
   .hero-summary small, .provider-stats small { color: #687580; font-size: .65rem; }
   .hero-summary strong { overflow: hidden; font-size: .85rem; text-overflow: ellipsis; }
   .provider-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
@@ -295,7 +295,7 @@
     border-radius: 11px; font-weight: 950; font-size: 1.2rem;
   }
   .ebay-logo { background: #edf2f6; color: #16202a; }
-  .whatnot-logo { background: #b8f34a; color: #0b1007; }
+  .whatnot-logo { background: #01d4a5; color: #0b1007; }
   .provider-head h2, .architecture-head h2, .next-card h2 { margin: 3px 0 0; }
   .status {
     display: inline-flex; align-items: center; gap: 5px;
@@ -328,7 +328,7 @@
     padding: 0 12px; color: #dce5df; background: #151e25;
     text-decoration: none; font-size: .72rem; font-weight: 850;
   }
-  .button:hover { border-color: #627244; color: #b8f34a; }
+  .button:hover { border-color: #627244; color: #01d4a5; }
   .connection-note {
     display: inline-flex; align-items: center; gap: 6px;
     color: #a5d866; font-size: .7rem; font-weight: 800;
@@ -337,7 +337,7 @@
   .architecture-head { display: flex; align-items: center; gap: 11px; }
   .architecture-icon {
     width: 40px; height: 40px; display: grid; place-items: center;
-    border-radius: 10px; color: #b8f34a; background: #182317;
+    border-radius: 10px; color: #01d4a5; background: #182317;
   }
   .flow {
     display: grid;
@@ -375,7 +375,7 @@
   }
   .flow small { color: #63717c; font-size: .64rem; }
   .nettiva-core { border-color: #526936 !important; background: #121a10 !important; }
-  .nettiva-core strong { color: #b8f34a; }
+  .nettiva-core strong { color: #01d4a5; }
   .foundation-checks {
     display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 18px;
     color: #7f8d97; font-size: .68rem;
@@ -387,7 +387,7 @@
     gap: 24px; margin-top: 18px; padding: 22px 24px;
   }
   .next-card p { max-width: 720px; margin: 6px 0 0; color: #74818c; font-size: .76rem; line-height: 1.5; }
-  .next-card > :global(svg) { color: #b8f34a; }
+  .next-card > :global(svg) { color: #01d4a5; }
   @media (max-width: 850px) {
     .marketplace-hero, .provider-grid { grid-template-columns: 1fr; }
     .marketplace-hero { gap: 22px; }

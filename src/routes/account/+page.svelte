@@ -94,7 +94,7 @@
     busy = null;
     if (result.error) return notify(result.error.message || 'Could not start the email change.', 'error');
     newEmail = '';
-    notify('Email change started. Check the security emails Nettiva sent.');
+    notify('Email change started. Check the security emails Sellquity sent.');
   }
 
   async function changePassword(event: SubmitEvent) {
@@ -164,20 +164,20 @@
 </script>
 
 <svelte:head>
-  <title>Account & security · Nettiva</title>
+  <title>Account & security · Sellquity</title>
   <meta name="robots" content="noindex,nofollow" />
 </svelte:head>
 
 <div class="account-shell">
   <header class="account-topbar">
-    <a href="/" class="brand"><span>N</span><strong>NETTIVA</strong></a>
+    <a href="/" class="brand"><span class="sellquity-icon-mark"><img src="/s-no-bg.png" alt="" aria-hidden="true" /></span><strong>SELLQUITY</strong></a>
     <a href="/" class="back"><ArrowLeft size={15} /> Back to workspace</a>
   </header>
 
   <main>
     <section class="hero">
       <span class="kicker">ACCOUNT & SECURITY</span>
-      <h1>Your Nettiva identity</h1>
+      <h1>Your Sellquity identity</h1>
       <p>Authentication controls who you are. Workspace membership controls which seller data you are allowed to touch.</p>
     </section>
 
@@ -212,7 +212,7 @@
 
       <article class="card">
         <div class="card-head"><Mail size={20} /><div><span class="kicker">EMAIL</span><h2>Change login email</h2></div></div>
-        <p class="card-copy">Nettiva verifies email changes instead of silently rebinding your account identity.</p>
+        <p class="card-copy">Sellquity verifies email changes instead of silently rebinding your account identity.</p>
         <form onsubmit={changeEmail}>
           <label><span>New email</span><input bind:value={newEmail} type="email" autocomplete="email" placeholder="new@example.com" /></label>
           <button class="primary" disabled={busy === 'email'}>
@@ -224,7 +224,7 @@
 
       <article class="card">
         <div class="card-head"><KeyRound size={20} /><div><span class="kicker">PASSWORD</span><h2>Change password</h2></div></div>
-        <p class="card-copy">Changing your password revokes every other active Nettiva session.</p>
+        <p class="card-copy">Changing your password revokes every other active Sellquity session.</p>
         <form onsubmit={changePassword}>
           <label><span>Current password</span><input bind:value={currentPassword} type="password" autocomplete="current-password" /></label>
           <label><span>New password</span><input bind:value={newPassword} type="password" autocomplete="new-password" placeholder="12+ characters" /></label>
@@ -273,7 +273,7 @@
       </article>
     </section>
 
-    <button class="signout" type="button" onclick={signOut}><LogOut size={16} /> Sign out of Nettiva</button>
+    <button class="signout" type="button" onclick={signOut}><LogOut size={16} /> Sign out of Sellquity</button>
   </main>
 </div>
 
@@ -282,44 +282,60 @@
   .account-shell { min-height: 100vh; background: #080c10; color: #e7eee8; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
   .account-topbar { height: 62px; display: flex; align-items: center; justify-content: space-between; padding: 0 28px; border-bottom: 1px solid #202a33; background: #0b1015; }
   .brand { display: flex; align-items: center; gap: 9px; color: #eaf0eb; text-decoration: none; letter-spacing: .1em; font-size: .8rem; }
-  .brand span { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 7px; background: #b8f34a; color: #081006; font-weight: 950; }
+  .brand span { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 7px; background: #01d4a5; color: #03131a; font-weight: 950; }
   .back { display: inline-flex; align-items: center; gap: 5px; color: #82909c; text-decoration: none; font-size: .72rem; }
-  .back:hover, .dev-link:hover { color: #b8f34a; }
+  .back:hover, .dev-link:hover { color: #01d4a5; }
   main { width: min(1040px, calc(100% - 40px)); margin: 0 auto; padding: 42px 0 70px; }
   .hero { max-width: 650px; margin-bottom: 25px; }
-  .kicker { color: #b8f34a; font: 800 .65rem Consolas, monospace; letter-spacing: .13em; }
+  .kicker { color: #01d4a5; font: 800 .65rem Consolas, monospace; letter-spacing: .13em; }
   h1 { margin: 8px 0 8px; font-size: clamp(2rem, 5vw, 3rem); letter-spacing: -.04em; }
   .hero p, .card-copy { color: #7e8a95; font-size: .78rem; line-height: 1.55; }
   .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
   .card { border: 1px solid #28333d; border-radius: 14px; padding: 20px; background: #0e141a; }
   .card-head { display: flex; align-items: center; gap: 9px; margin-bottom: 14px; }
-  .card-head > :global(svg) { color: #b8f34a; }
+  .card-head > :global(svg) { color: #01d4a5; }
   h2 { margin: 3px 0 0; font-size: 1.05rem; }
   form { display: grid; gap: 11px; }
   label { display: grid; gap: 6px; color: #aab4bd; font-size: .72rem; font-weight: 700; }
   label small { color: #67747f; font-weight: 500; }
   input, textarea { width: 100%; box-sizing: border-box; border: 1px solid #35414c; border-radius: 8px; padding: 10px 11px; outline: 0; background: #090e13; color: #edf3ee; font: inherit; }
-  input:focus, textarea:focus { border-color: #779f3d; box-shadow: 0 0 0 1px #779f3d55; }
+  input:focus, textarea:focus { border-color: #0a8fc4; box-shadow: 0 0 0 1px #0a8fc455; }
   input:disabled { color: #788590; background: #0c1116; }
   button, .secondary, .primary { min-height: 39px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border-radius: 8px; padding: 0 13px; font: inherit; font-size: .72rem; font-weight: 850; cursor: pointer; }
   button:disabled { opacity: .45; cursor: not-allowed; }
-  .primary { border: 0; background: #b8f34a; color: #091006; }
+  .primary { border: 0; background: #01d4a5; color: #03131a; }
   .secondary { border: 1px solid #384550; background: #121920; color: #c7d0d7; }
   .danger { border: 1px solid #66323a; background: #2a1419; color: #ff9ba2; }
   .full { width: 100%; }
   .actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
   .verification-pill { width: fit-content; display: inline-flex; align-items: center; gap: 5px; border: 1px solid #604d27; border-radius: 99px; padding: 5px 8px; color: #dbbd73; background: #211b10; font-size: .66rem; font-weight: 800; }
-  .verification-pill.verified { border-color: #365329; color: #c4e99a; background: #172314; }
+  .verification-pill.verified { border-color: #15545a; color: #c4e99a; background: #172314; }
   .dev-link { display: inline-block; margin-top: 12px; color: #74818c; text-decoration: none; font-size: .67rem; }
   .danger-card { grid-column: 1 / -1; border-color: #4b282e; }
   .deletion-pending { display: flex; align-items: flex-start; gap: 8px; margin: 10px 0 14px; border: 1px solid #5c4722; border-radius: 9px; padding: 11px; color: #d7bb79; background: #221b10; font-size: .72rem; line-height: 1.5; }
   .deletion-pending span { display: flex; flex-direction: column; gap: 2px; }
-  .notice { margin-bottom: 16px; border: 1px solid #355327; border-radius: 9px; padding: 10px 12px; color: #c5e99a; background: #172313; font-size: .75rem; }
+  .notice { margin-bottom: 16px; border: 1px solid #15545a; border-radius: 9px; padding: 10px 12px; color: #78f6dd; background: #0b252a; font-size: .75rem; }
   .notice.bad { border-color: #5b2d34; color: #ff9ca3; background: #281419; }
-  code { color: #b8f34a; }
+  code { color: #01d4a5; }
   .signout { margin-top: 18px; border: 0; background: transparent; color: #71808c; }
   .signout:hover { color: #ff9ba2; }
   :global(.spin) { animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
   @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .danger-card { grid-column: auto; } .account-topbar { padding: 0 18px; } main { width: min(100% - 28px, 1040px); } }
+
+
+  .sellquity-icon-mark {
+    overflow: hidden;
+    padding: 0 !important;
+    background: linear-gradient(145deg, #071c31, #0b2840) !important;
+    border: 1px solid #185778 !important;
+    box-shadow: 0 8px 24px #0069e326 !important;
+  }
+
+  .sellquity-icon-mark img {
+    width: 88%;
+    height: 88%;
+    display: block;
+    object-fit: contain;
+  }
 </style>

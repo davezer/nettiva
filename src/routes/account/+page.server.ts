@@ -47,7 +47,7 @@ export const load: PageServerLoad = async ({ platform, locals, url }) => {
 
   return {
     user: {
-      name: locals.authName ?? locals.authEmail ?? 'Nettiva user',
+      name: locals.authName ?? locals.authEmail ?? 'Sellquity user',
       email: locals.authEmail ?? '',
       emailVerified: Boolean(verification?.emailVerified)
     },

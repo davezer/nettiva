@@ -1,4 +1,4 @@
-type NettivaEnv = App.Platform['env'];
+type __PROTECTED_SELLQUITY_ENV__ = App.Platform['env'];
 
 export type AuthEmailKind =
   | 'verify-email'
@@ -27,7 +27,7 @@ function looksLocal(value?: string | null) {
   );
 }
 
-export function authEmailMode(env: NettivaEnv): AuthEmailMode {
+export function authEmailMode(env: __PROTECTED_SELLQUITY_ENV__): AuthEmailMode {
   const configured = env.NETTIVA_AUTH_EMAIL_MODE?.trim().toLowerCase();
   if (configured === 'outbox' || configured === 'resend' || configured === 'disabled') {
     return configured;
@@ -55,7 +55,7 @@ function emailHtml(message: AuthEmailMessage) {
 <html>
   <body style="margin:0;background:#080c10;color:#e7eee8;font-family:Arial,sans-serif">
     <div style="max-width:560px;margin:0 auto;padding:40px 24px">
-      <div style="font-weight:900;letter-spacing:.14em;color:#b8f34a">NETTIVA</div>
+      <div style="font-weight:900;letter-spacing:.14em;color:#b8f34a">SELLQUITY</div>
       <h1 style="font-size:24px;margin:24px 0 10px">${escapeHtml(message.subject)}</h1>
       <p style="color:#9aa7b2;line-height:1.6">${intro}</p>
       <p style="margin:28px 0">
@@ -67,7 +67,7 @@ function emailHtml(message: AuthEmailMessage) {
 </html>`;
 }
 
-async function writeOutbox(env: NettivaEnv, message: AuthEmailMessage) {
+async function writeOutbox(env: __PROTECTED_SELLQUITY_ENV__, message: AuthEmailMessage) {
   await env.DB.prepare(`
     INSERT INTO auth_email_outbox (
       id, auth_user_id, recipient, kind, subject, action_url, created_at
@@ -84,7 +84,7 @@ async function writeOutbox(env: NettivaEnv, message: AuthEmailMessage) {
   ).run();
 }
 
-async function sendWithResend(env: NettivaEnv, message: AuthEmailMessage) {
+async function sendWithResend(env: __PROTECTED_SELLQUITY_ENV__, message: AuthEmailMessage) {
   const apiKey = env.RESEND_API_KEY?.trim();
   const from = env.NETTIVA_AUTH_EMAIL_FROM?.trim();
 
@@ -117,7 +117,7 @@ async function sendWithResend(env: NettivaEnv, message: AuthEmailMessage) {
   }
 }
 
-export async function sendAuthEmail(env: NettivaEnv, message: AuthEmailMessage) {
+export async function sendAuthEmail(env: __PROTECTED_SELLQUITY_ENV__, message: AuthEmailMessage) {
   const mode = authEmailMode(env);
 
   if (mode === 'outbox') {
@@ -136,12 +136,12 @@ export async function sendAuthEmail(env: NettivaEnv, message: AuthEmailMessage) 
 }
 
 export function queueAuthEmail(
-  env: NettivaEnv,
+  env: __PROTECTED_SELLQUITY_ENV__,
   context: ExecutionContext | undefined,
   message: AuthEmailMessage
 ) {
   const task = sendAuthEmail(env, message).catch((error) => {
-    console.error(`Nettiva auth email failed (${message.kind})`, error);
+    console.error(`Sellquity auth email failed (${message.kind})`, error);
   });
 
   if (context) context.waitUntil(task);

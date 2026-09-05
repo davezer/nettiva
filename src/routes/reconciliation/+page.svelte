@@ -114,16 +114,16 @@
 </script>
 
 <svelte:head>
-  <title>Whatnot reconciliation · Nettiva</title>
+  <title>Whatnot reconciliation · Sellquity</title>
   <meta name="robots" content="noindex,nofollow" />
 </svelte:head>
 
 <div class="recon-shell">
   <header class="topbar">
-    <a href="/" class="back"><ArrowLeft size={16} /> Nettiva</a>
+    <a href="/" class="back"><ArrowLeft size={16} /> Sellquity</a>
     <div class="workspace">
       <span>WORKSPACE</span>
-      <strong>{data.workspace?.name ?? 'Nettiva'}</strong>
+      <strong>{data.workspace?.name ?? 'Sellquity'}</strong>
     </div>
   </header>
 
@@ -134,7 +134,7 @@
         <h1>Follow the actual balance.</h1>
         <p>
           Weekly Orders Reports explain profit. The Whatnot Ledger explains what actually moved
-          through your marketplace balance. Nettiva keeps those two jobs separate so revenue is
+          through your marketplace balance. Sellquity keeps those two jobs separate so revenue is
           never counted twice.
         </p>
       </div>
@@ -288,7 +288,7 @@
     font-weight: 800;
   }
 
-  .back:hover { color: #b8f34a; }
+  .back:hover { color: #01d4a5; }
 
   .workspace {
     display: flex;
@@ -342,8 +342,8 @@
     min-height: 38px;
     border-radius: 9px;
     padding: 0 13px;
-    color: #091006;
-    background: #b8f34a;
+    color: #03131a;
+    background: #01d4a5;
     text-decoration: none;
     font-size: .72rem;
     font-weight: 900;
@@ -368,7 +368,7 @@
   }
 
   .metrics article:last-child { border-right: 0; }
-  .metrics article > :global(svg) { color: #b8f34a; }
+  .metrics article > :global(svg) { color: #01d4a5; }
 
   .metrics span {
     min-width: 0;
@@ -390,12 +390,12 @@
     border-radius: 10px;
     padding: 11px 12px;
     color: #7e8d80;
-    background: #10180e;
+    background: #081821;
     font-size: .72rem;
     line-height: 1.5;
   }
 
-  .recon-note > :global(svg) { flex: 0 0 auto; color: #9dca5a; }
+  .recon-note > :global(svg) { flex: 0 0 auto; color: #01d0e9; }
   .recon-note strong { color: #b8c7b9; }
 
   .toolbar {
@@ -428,7 +428,7 @@
     background: #0d141a;
   }
 
-  .search input:focus { border-color: #667b44; }
+  .search input:focus { border-color: #11698a; }
 
   .tabs {
     display: flex;
@@ -452,8 +452,8 @@
   }
 
   .tabs button.active {
-    color: #071006;
-    background: #b8f34a;
+    color: #03131a;
+    background: #01d4a5;
   }
 
   .ledger-card {
@@ -516,7 +516,7 @@
 
   .num { text-align: right; font-variant-numeric: tabular-nums; }
   .amount { font-weight: 850; }
-  .credit { color: #b8f34a; }
+  .credit { color: #01d4a5; }
   .debit { color: #d69095; }
 
   .type-pill,
@@ -531,12 +531,12 @@
   }
 
   .type-pill { color: #aeb9c1; background: #202a33; }
-  .type-pill.sales { color: #b8f34a; background: #1a2912; }
+  .type-pill.sales { color: #01d4a5; background: #0c2730; }
   .type-pill.tip { color: #66d9ff; background: #122832; }
   .type-pill.payout { color: #c3a6dd; background: #282033; }
 
   .status { text-transform: none; }
-  .status.matched { color: #a8d56e; background: #182612; }
+  .status.matched { color: #55ead2; background: #0b2830; }
   .status.waiting { color: #e3bd72; background: #2b2314; }
   .status.income { color: #6ed5f4; background: #142b33; }
   .status.excluded { color: #8d99a4; background: #202832; }

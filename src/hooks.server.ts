@@ -65,7 +65,7 @@ export const handle: Handle = async ({ event, resolve }) => {
     if (publicPath) return resolve(event);
 
     return new Response(
-      'Cloudflare runtime bindings are unavailable. Nettiva auth requires the local D1 runtime.',
+      'Cloudflare runtime bindings are unavailable. Sellquity auth requires the local D1 runtime.',
       { status: 503 }
     );
   }
@@ -75,7 +75,7 @@ export const handle: Handle = async ({ event, resolve }) => {
     if (publicPath) return resolve(event);
 
     return new Response(
-      'Nettiva auth is not configured. Add BETTER_AUTH_SECRET to .dev.vars.',
+      'Sellquity auth is not configured. Add BETTER_AUTH_SECRET to .dev.vars.',
       { status: 503 }
     );
   }
@@ -98,7 +98,7 @@ export const handle: Handle = async ({ event, resolve }) => {
       headers: event.request.headers
     });
   } catch (error) {
-    console.error('Nettiva session lookup failed', error);
+    console.error('Sellquity session lookup failed', error);
   }
 
   if (!session) {
@@ -128,11 +128,11 @@ export const handle: Handle = async ({ event, resolve }) => {
 
   if (!tenant) {
     if (pathname.startsWith('/api/')) {
-      return unauthorizedApi('No active Nettiva workspace membership was found.', 403);
+      return unauthorizedApi('No active Sellquity workspace membership was found.', 403);
     }
 
     return new Response(
-      'No active Nettiva workspace membership was found.',
+      'No active Sellquity workspace membership was found.',
       { status: 403 }
     );
   }
@@ -163,7 +163,7 @@ export const handle: Handle = async ({ event, resolve }) => {
     !isAccountPath(pathname)
   ) {
     if (pathname.startsWith('/api/')) {
-      return unauthorizedApi('Verify your email before using Nettiva business APIs.', 403);
+      return unauthorizedApi('Verify your email before using Sellquity business APIs.', 403);
     }
 
     const accountURL = new URL('/account', event.url);

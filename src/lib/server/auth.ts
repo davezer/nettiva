@@ -2,21 +2,21 @@ import { betterAuth } from 'better-auth';
 import { APIError } from 'better-auth/api';
 import { queueAuthEmail } from './email';
 
-type NettivaEnv = App.Platform['env'];
+type __PROTECTED_SELLQUITY_ENV__ = App.Platform['env'];
 export type SignupMode = 'closed' | 'founder' | 'open';
 
-export function signupMode(env: NettivaEnv): SignupMode {
+export function signupMode(env: __PROTECTED_SELLQUITY_ENV__): SignupMode {
   const value = env.NETTIVA_SIGNUP_MODE?.trim().toLowerCase();
   return value === 'founder' || value === 'open' ? value : 'closed';
 }
 
-export function emailVerificationRequired(env: NettivaEnv) {
+export function emailVerificationRequired(env: __PROTECTED_SELLQUITY_ENV__) {
   return ['1', 'true', 'yes', 'on'].includes(
     env.NETTIVA_REQUIRE_EMAIL_VERIFICATION?.trim().toLowerCase() ?? ''
   );
 }
 
-export async function signupAvailability(env: NettivaEnv) {
+export async function signupAvailability(env: __PROTECTED_SELLQUITY_ENV__) {
   const mode = signupMode(env);
   const row = await env.DB.prepare(
     'SELECT COUNT(*) AS count FROM "user"'
@@ -31,7 +31,7 @@ export async function signupAvailability(env: NettivaEnv) {
 }
 
 export function createAuth(
-  env: NettivaEnv,
+  env: __PROTECTED_SELLQUITY_ENV__,
   requestOrigin?: string,
   context?: ExecutionContext
 ) {
@@ -62,8 +62,8 @@ export function createAuth(
           authUserId: user.id,
           to: user.email,
           kind: 'reset-password',
-          subject: 'Reset your Nettiva password',
-          intro: 'Use this secure link to choose a new Nettiva password. If you did not request a reset, you can ignore this email.',
+          subject: 'Reset your Sellquity password',
+          intro: 'Use this secure link to choose a new Sellquity password. If you did not request a reset, you can ignore this email.',
           buttonLabel: 'Reset password',
           actionUrl: url
         });
@@ -75,8 +75,8 @@ export function createAuth(
           authUserId: user.id,
           to: user.email,
           kind: 'verify-email',
-          subject: 'Verify your Nettiva email',
-          intro: 'Confirm this email address so Nettiva can use it for account recovery and security notifications.',
+          subject: 'Verify your Sellquity email',
+          intro: 'Confirm this email address so Sellquity can use it for account recovery and security notifications.',
           buttonLabel: 'Verify email',
           actionUrl: url
         });
@@ -94,8 +94,8 @@ export function createAuth(
             authUserId: user.id,
             to: user.email,
             kind: 'change-email-current',
-            subject: 'Approve your Nettiva email change',
-            intro: `A request was made to change your Nettiva login email to ${newEmail}. Confirm this request to continue.`,
+            subject: 'Approve your Sellquity email change',
+            intro: `A request was made to change your Sellquity login email to ${newEmail}. Confirm this request to continue.`,
             buttonLabel: 'Approve email change',
             actionUrl: url
           });
@@ -132,7 +132,7 @@ export function createAuth(
             const availability = await signupAvailability(env);
             if (!availability.canSignUp) {
               throw new APIError('BAD_REQUEST', {
-                message: 'New Nettiva account creation is currently closed.'
+                message: 'New Sellquity account creation is currently closed.'
               });
             }
 
