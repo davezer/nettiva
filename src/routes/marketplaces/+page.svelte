@@ -102,8 +102,8 @@
         </div>
 
         <p>
-          Existing eBay inventory, orders, fees, labels, payouts, and CSV history now sit behind
-          the same provider-neutral identity layer Whatnot will use.
+          Seller Hub Transaction reports are Sellquity's primary eBay accounting feed while API
+          access is pending. Sales, fees, labels, payouts, and matching SKU inventory reconcile here.
         </p>
 
         <div class="provider-stats">
@@ -113,17 +113,22 @@
         </div>
 
         <div class="provider-actions">
-          {#if ebay.connected}
-            <span class="connection-note"><Check size={15} /> OAuth account linked</span>
-          {:else}
-            <a class="button secondary" href="/api/ebay/connect">
-              <ExternalLink size={16} /> Connect when approved
+          <div class="provider-button-row">
+            <a class="button secondary" href="/import">
+              <FileSpreadsheet size={16} /> Import Seller Hub CSV
             </a>
-          {/if}
+            {#if ebay.connected}
+              <span class="connection-note"><Check size={15} /> OAuth account linked</span>
+            {:else}
+              <a class="button secondary" href="/api/ebay/connect">
+                <ExternalLink size={16} /> Connect when approved
+              </a>
+            {/if}
+          </div>
           <small>
             {ebay.lastSyncedAt
-              ? `Last sync ${new Date(ebay.lastSyncedAt).toLocaleString()}`
-              : 'Sellquity can keep using transaction imports while API access is unavailable.'}
+              ? `Last API sync ${new Date(ebay.lastSyncedAt).toLocaleString()} · CSV imports remain safe to re-run.`
+              : 'Transaction reports are the active Sellquity workflow while API access is unavailable.'}
           </small>
         </div>
       </article>

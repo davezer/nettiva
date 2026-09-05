@@ -131,7 +131,7 @@
     { view: 'sales' as const, label: 'Sales', icon: BadgeDollarSign },
     { view: 'accounting' as const, label: 'Accounting', icon: Calculator },
     { view: 'reports' as const, label: 'Reports', icon: BarChart3 },
-    { view: 'settings' as const, label: 'Marketplaces & Data', icon: Settings }
+    { view: 'settings' as const, label: 'Data & Imports', icon: Settings }
   ];
 
   function inventoryCategoryLabel(category: InventoryCategory) {
@@ -1026,7 +1026,7 @@
       <div class:online={data.connected} class="connection-dot"></div>
       <div>
         <strong>{workspaceSafe.name}</strong>
-        <small>{data.hasImportedData ? 'Multi-channel workspace' : data.connected ? 'Marketplace workspace' : 'Demo workspace'} · {workspaceSafe.role}</small>
+        <small>{data.hasImportedData ? 'eBay resale workspace' : data.connected ? 'eBay workspace' : 'Demo workspace'} · {workspaceSafe.role}</small>
       </div>
     </div>
   </aside>
@@ -1046,7 +1046,7 @@
         {:else if metrics.missingCogs > 0 && ['dashboard', 'sales', 'accounting', 'reports'].includes(view)}
           <span class="demo-badge">{metrics.missingCogs} COGS missing</span>
         {/if}
-        <a class="button secondary" href="/marketplaces"><ShoppingBag size={17} /> Marketplaces</a>
+        <a class="button secondary" href="/import"><FileSpreadsheet size={17} /> Import eBay CSV</a>
         {#if data.connected}
           <button class="button secondary" onclick={syncNow} disabled={syncing}>
             {#if syncing}<LoaderCircle class="spin" size={17} />{:else}<RefreshCw size={17} />{/if}
@@ -1615,31 +1615,31 @@
         </article>
 
         <article class="connection-card">
-          <div class:connected={data.connected} class="connection-hero"><PlugZap size={30} /><span>MULTI-CHANNEL</span></div>
-          <h2>Marketplace hub</h2>
-          <p>eBay and Whatnot can feed the same inventory identities, COGS, accounting ledger, and reports instead of living in separate silos.</p>
-          <a class="button primary" href="/marketplaces"><ExternalLink size={17} /> Manage marketplaces</a>
-          <small>{data.connected ? 'eBay is connected through the new marketplace layer.' : 'eBay can remain pending while Sellquity builds out the Whatnot adapter.'}</small>
+          <div class:connected={data.hasImportedData || data.connected} class="connection-hero"><FileSpreadsheet size={30} /><span>EBAY DATA</span></div>
+          <h2>Seller Hub transaction import</h2>
+          <p>Transaction reports are Sellquity's normal eBay accounting feed while direct API access is pending. Sales can close the same SKU you prepared and listed inside Sellquity.</p>
+          <a class="button primary" href="/import"><FileSpreadsheet size={17} /> Import eBay transactions</a>
+          <small>Duplicate-safe · sales · fees · shipping labels · payouts · inventory reconciliation</small>
         </article>
 
         <article class="panel setup-checklist">
-          <span class="kicker">ACCOUNTING FOUNDATION</span>
-          <h2>Ready for API sync</h2>
+          <span class="kicker">EBAY ACCOUNTING LOOP</span>
+          <h2>Built for the workflow you can use today</h2>
           <ul>
-            <li><Check /> Signed debit / credit ledger</li>
-            <li><Check /> Marketplace fee breakdown</li>
-            <li><Check /> Shipping-label expenses</li>
+            <li><Check /> Seller Hub Transaction reports</li>
+            <li><Check /> Exact SKU / Custom label matching</li>
+            <li><Check /> Sold inventory + listing closure</li>
             <li><Check /> COGS and true-profit workflow</li>
             <li><Check /> Payouts excluded from P&L</li>
           </ul>
-          <div class="setup-note"><BarChart3 /><span><strong>Built to reconcile</strong>API data will feed the same accounting model already proven with your real transaction history.</span></div>
+          <div class="setup-note"><BarChart3 /><span><strong>API-ready underneath</strong>When eBay access arrives, automation can feed the same accounting model without replacing your inventory identities.</span></div>
         </article>
 
         <article class="panel advanced-card">
-          <span class="kicker">ADVANCED / FALLBACK</span>
-          <h2>Manual transaction history</h2>
-          <p>The transaction CSV importer stays available for historical backfills, recovery, or reconciliation. We are not building Sellquity's normal workflow around CSV imports.</p>
-          <a class="button secondary" href="/import"><FileSpreadsheet size={17} /> Open transaction importer</a>
+          <span class="kicker">AUTOMATION LATER</span>
+          <h2>Marketplace connections</h2>
+          <p>The provider-neutral architecture stays intact, but it no longer gets in the way of your personal eBay workflow. Whatnot and future API adapters remain parked underneath Sellquity.</p>
+          <a class="button secondary" href="/marketplaces"><ExternalLink size={17} /> View marketplace hub</a>
         </article>
       </section>
     {/if}

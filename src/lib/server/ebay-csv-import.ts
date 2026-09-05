@@ -10,6 +10,27 @@ import { DEFAULT_WORKSPACE_ID, workspaceEntityId } from './workspace';
 
 type CsvRecord = Record<string, string>;
 
+type InventoryIdentity = {
+  id: string;
+  sku: string | null;
+  ebayItemId: string | null;
+  status: string;
+  purchaseCostCents: number | null;
+};
+
+type ListingIdentityRow = {
+  inventoryItemId: string;
+  externalListingId: string | null;
+  status: string;
+};
+
+type InventoryMatchReason = 'ebay_item_id' | 'listing_id' | 'sku';
+
+type InventoryMatch = {
+  inventory: InventoryIdentity;
+  reason: InventoryMatchReason;
+};
+
 export type CsvImportResult = {
   batchId: string;
   rowsSeen: number;
@@ -20,6 +41,10 @@ export type CsvImportResult = {
   shippingLabelsImported: number;
   payoutsImported: number;
   unallocatedTransactions: number;
+  inventoryMatched: number;
+  inventoryCreated: number;
+  listingsEnded: number;
+  cogsPreserved: number;
 };
 
 const FEE_COLUMNS = [
@@ -36,6 +61,10 @@ const FEE_COLUMNS = [
 function clean(value?: string | null) {
   const trimmed = value?.trim() ?? '';
   return !trimmed || trimmed === '--' ? null : trimmed;
+}
+
+function normalizedSku(value?: string | null) {
+  return clean(value)?.toLowerCase() ?? null;
 }
 
 function parseCsv(text: string) {
@@ -164,6 +193,46 @@ async function runStatements(db: D1Database, statements: D1PreparedStatement[]) 
   }
 }
 
+function addSkuIdentity(
+  map: Map<string, InventoryIdentity[]>,
+  inventory: InventoryIdentity
+) {
+  const key = normalizedSku(inventory.sku);
+  if (!key) return;
+
+  const rows = map.get(key) ?? [];
+  if (!rows.some((row) => row.id === inventory.id)) rows.push(inventory);
+  map.set(key, rows);
+}
+
+function chooseSkuCandidate(
+  map: Map<string, InventoryIdentity[]>,
+  sku: string
+): InventoryIdentity | null {
+  const key = normalizedSku(sku);
+  if (!key) return null;
+
+  const candidates = map.get(key) ?? [];
+  if (!candidates.length) return null;
+
+  const unsold = candidates.filter((row) => row.status !== 'sold');
+  if (unsold.length === 1) return unsold[0];
+
+  if (unsold.length > 1) {
+    throw new Error(
+      `More than one unsold Sellquity inventory item uses SKU/custom label "${sku}". ` +
+      'Resolve the duplicate SKU before importing this report.'
+    );
+  }
+
+  if (candidates.length === 1) return candidates[0];
+
+  throw new Error(
+    `More than one Sellquity inventory record uses SKU/custom label "${sku}". ` +
+    'Resolve the duplicate SKU before importing this report.'
+  );
+}
+
 export async function importEbayTransactionCsv(
   db: D1Database,
   text: string,
@@ -183,6 +252,104 @@ export async function importEbayTransactionCsv(
   let shippingLabelsImported = 0;
   let payoutsImported = 0;
   let unallocatedTransactions = 0;
+  let inventoryMatched = 0;
+  let inventoryCreated = 0;
+  let listingsEnded = 0;
+  let cogsPreserved = 0;
+
+  const inventoryResult = await db.prepare(`
+    SELECT
+      id,
+      sku,
+      ebay_item_id AS ebayItemId,
+      status,
+      purchase_cost_cents AS purchaseCostCents
+    FROM inventory_items
+    WHERE workspace_id = ?
+  `).bind(workspaceId).all();
+
+  const inventoryRows = (inventoryResult.results as unknown as InventoryIdentity[]).map((row) => ({
+    ...row,
+    purchaseCostCents: row.purchaseCostCents == null ? null : Number(row.purchaseCostCents)
+  }));
+
+  const inventoryById = new Map<string, InventoryIdentity>();
+  const inventoryByItemId = new Map<string, InventoryIdentity>();
+  const inventoryBySku = new Map<string, InventoryIdentity[]>();
+  const inventoryIdsAtStart = new Set<string>();
+
+  for (const inventory of inventoryRows) {
+    inventoryById.set(inventory.id, inventory);
+    inventoryIdsAtStart.add(inventory.id);
+    if (inventory.ebayItemId) inventoryByItemId.set(inventory.ebayItemId, inventory);
+    addSkuIdentity(inventoryBySku, inventory);
+  }
+
+  const listingResult = await db.prepare(`
+    SELECT
+      inventory_item_id AS inventoryItemId,
+      COALESCE(external_listing_id, ebay_listing_id) AS externalListingId,
+      status
+    FROM listings
+    WHERE workspace_id = ?
+      AND marketplace_provider = 'ebay'
+  `).bind(workspaceId).all();
+
+  const listingRows = listingResult.results as unknown as ListingIdentityRow[];
+  const inventoryByListingId = new Map<string, InventoryIdentity>();
+  const liveListingCounts = new Map<string, number>();
+
+  for (const listing of listingRows) {
+    const inventory = inventoryById.get(listing.inventoryItemId);
+    if (!inventory) continue;
+
+    if (listing.externalListingId) {
+      inventoryByListingId.set(listing.externalListingId, inventory);
+    }
+
+    if (listing.status === 'active' || listing.status === 'scheduled') {
+      liveListingCounts.set(
+        listing.inventoryItemId,
+        (liveListingCounts.get(listing.inventoryItemId) ?? 0) + 1
+      );
+    }
+  }
+
+  function findInventoryMatch(
+    itemId: string | null,
+    customLabel: string | null
+  ): InventoryMatch | null {
+    const itemInventory = itemId
+      ? inventoryByItemId.get(itemId) ?? inventoryByListingId.get(itemId) ?? null
+      : null;
+
+    const skuCandidates = customLabel && normalizedSku(customLabel)
+      ? inventoryBySku.get(normalizedSku(customLabel)!) ?? []
+      : [];
+
+    if (itemInventory) {
+      const conflictingUnsold = skuCandidates.find(
+        (candidate) => candidate.id !== itemInventory.id && candidate.status !== 'sold'
+      );
+
+      if (conflictingUnsold) {
+        throw new Error(
+          `eBay Item ID ${itemId} and Custom label "${customLabel}" point to different ` +
+          'Sellquity inventory items. Resolve that identity conflict before importing.'
+        );
+      }
+
+      return {
+        inventory: itemInventory,
+        reason: itemId && inventoryByItemId.has(itemId) ? 'ebay_item_id' : 'listing_id'
+      };
+    }
+
+    if (!customLabel) return null;
+
+    const skuInventory = chooseSkuCandidate(inventoryBySku, customLabel);
+    return skuInventory ? { inventory: skuInventory, reason: 'sku' } : null;
+  }
 
   await db.prepare(`
     INSERT INTO import_batches (
@@ -231,12 +398,113 @@ export async function importEbayTransactionCsv(
     const financeId = workspaceEntityId(workspaceId, `finance:${externalTransactionId}`);
 
     if (category === 'sale' && orderId) {
-      const inventoryId = itemId
-        ? workspaceEntityId(workspaceId, `ebay:${itemId}`)
-        : workspaceEntityId(
-            workspaceId,
-            `sold:csv:${await shortHash(`${orderId}:${transactionId ?? index}:${title}`)}`
-          );
+      const match = findInventoryMatch(itemId, customLabel);
+
+      let inventoryId: string;
+      let matchedInventory: InventoryIdentity | null = null;
+
+      if (match) {
+        matchedInventory = match.inventory;
+        inventoryId = matchedInventory.id;
+
+        if (inventoryIdsAtStart.has(inventoryId)) {
+          inventoryMatched += 1;
+          if (matchedInventory.purchaseCostCents !== null) cogsPreserved += 1;
+        }
+
+        const liveCount = liveListingCounts.get(inventoryId) ?? 0;
+        if (liveCount) {
+          listingsEnded += liveCount;
+          liveListingCounts.set(inventoryId, 0);
+        }
+
+        statements.push(db.prepare(`
+          UPDATE inventory_items
+          SET
+            sku = COALESCE(sku, ?),
+            ebay_item_id = COALESCE(ebay_item_id, ?),
+            status = 'sold',
+            updated_at = ?
+          WHERE workspace_id = ?
+            AND id = ?
+        `).bind(
+          customLabel,
+          itemId,
+          now,
+          workspaceId,
+          inventoryId
+        ));
+
+        statements.push(db.prepare(`
+          UPDATE listings
+          SET
+            ebay_listing_id = COALESCE(ebay_listing_id, ?),
+            external_listing_id = COALESCE(external_listing_id, ?),
+            view_item_url = COALESCE(view_item_url, ?),
+            ended_at = ?,
+            status = 'ended',
+            updated_at = ?
+          WHERE workspace_id = ?
+            AND inventory_item_id = ?
+            AND marketplace_provider = 'ebay'
+            AND status IN ('active', 'scheduled')
+        `).bind(
+          itemId,
+          itemId,
+          itemId ? `https://www.ebay.com/itm/${itemId}` : null,
+          soldAt,
+          now,
+          workspaceId,
+          inventoryId
+        ));
+
+        if (!matchedInventory.sku && customLabel) {
+          matchedInventory.sku = customLabel;
+          addSkuIdentity(inventoryBySku, matchedInventory);
+        }
+        if (!matchedInventory.ebayItemId && itemId) {
+          matchedInventory.ebayItemId = itemId;
+          inventoryByItemId.set(itemId, matchedInventory);
+        }
+        matchedInventory.status = 'sold';
+      } else {
+        inventoryId = itemId
+          ? workspaceEntityId(workspaceId, `ebay:${itemId}`)
+          : workspaceEntityId(
+              workspaceId,
+              `sold:csv:${await shortHash(`${orderId}:${transactionId ?? index}:${title}`)}`
+            );
+
+        const existingHistory = inventoryById.get(inventoryId);
+        if (!existingHistory) {
+          inventoryCreated += 1;
+
+          const history: InventoryIdentity = {
+            id: inventoryId,
+            sku: customLabel,
+            ebayItemId: itemId,
+            status: 'sold',
+            purchaseCostCents: null
+          };
+          inventoryById.set(inventoryId, history);
+          if (itemId) inventoryByItemId.set(itemId, history);
+          addSkuIdentity(inventoryBySku, history);
+        }
+
+        statements.push(db.prepare(`
+          INSERT INTO inventory_items (
+            workspace_id, id, title, sku, ebay_item_id, status, updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, 'sold', ?)
+          ON CONFLICT(id) DO UPDATE SET
+            title = excluded.title,
+            sku = COALESCE(excluded.sku, inventory_items.sku),
+            ebay_item_id = COALESCE(excluded.ebay_item_id, inventory_items.ebay_item_id),
+            status = 'sold',
+            updated_at = excluded.updated_at
+        `).bind(workspaceId, inventoryId, title, customLabel, itemId, now));
+      }
+
       const orderItemId = workspaceEntityId(
         workspaceId,
         stableOrderItemId(orderId, itemId, transactionId ?? String(index))
@@ -265,18 +533,6 @@ export async function importEbayTransactionCsv(
         currency,
         now
       ));
-
-      statements.push(db.prepare(`
-        INSERT INTO inventory_items (
-          workspace_id, id, title, sku, ebay_item_id, status, updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, 'sold', ?)
-        ON CONFLICT(id) DO UPDATE SET
-          title = excluded.title,
-          sku = COALESCE(excluded.sku, inventory_items.sku),
-          status = 'sold',
-          updated_at = excluded.updated_at
-      `).bind(workspaceId, inventoryId, title, customLabel, itemId, now));
 
       statements.push(db.prepare(`
         INSERT INTO order_items (
@@ -365,7 +621,9 @@ export async function importEbayTransactionCsv(
     rowsImported += 1;
     if (category === 'shipping_label') shippingLabelsImported += 1;
     if (category === 'payout') payoutsImported += 1;
-    if (!orderId && isExpenseCategory(category) && netAmountCents !== 0) unallocatedTransactions += 1;
+    if (!orderId && isExpenseCategory(category) && netAmountCents !== 0) {
+      unallocatedTransactions += 1;
+    }
 
     // eBay's order Net amount is already net of these fees. We still store the
     // individual fee rows so sale profit can be calculated from gross order value.
@@ -443,12 +701,16 @@ export async function importEbayTransactionCsv(
     sellingFeesImported,
     shippingLabelsImported,
     payoutsImported,
-    unallocatedTransactions
+    unallocatedTransactions,
+    inventoryMatched,
+    inventoryCreated,
+    listingsEnded,
+    cogsPreserved
   };
 }
 
 /**
- * Backwards-compatible alias for Nettiva's earlier CSV endpoint.
+ * Backwards-compatible alias for Sellquity's earlier CSV endpoint.
  * Prefer `importEbayTransactionCsv` for all new code.
  */
 export async function importEbayCsv(...args: any[]): Promise<any> {

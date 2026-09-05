@@ -1,4 +1,21 @@
 <script lang="ts">
+  import { invalidateAll } from '$app/navigation';
+  import {
+    AlertTriangle,
+    ArrowLeft,
+    Check,
+    ChevronDown,
+    CloudUpload,
+    FileSpreadsheet,
+    PackageCheck,
+    ReceiptText,
+    RefreshCw,
+    ShoppingBag,
+    Tag,
+    WalletCards
+  } from '@lucide/svelte';
+  import type { PageData } from './$types';
+
   type Marketplace = 'ebay' | 'whatnot';
   type WhatnotMode = 'orders' | 'ledger';
 
@@ -12,6 +29,10 @@
     shippingLabelsImported: number;
     payoutsImported: number;
     unallocatedTransactions: number;
+    inventoryMatched: number;
+    inventoryCreated: number;
+    listingsEnded: number;
+    cogsPreserved: number;
   };
 
   type WhatnotImportResult = {
@@ -46,10 +67,13 @@
     netBalanceChangeCents: number;
   };
 
-  let marketplace = $state<Marketplace>('whatnot');
+  let { data }: { data: PageData } = $props();
+
+  let marketplace = $state<Marketplace>('ebay');
   let whatnotMode = $state<WhatnotMode>('orders');
   let files = $state<File[]>([]);
   let importing = $state(false);
+  let dragging = $state(false);
   let error = $state<string | null>(null);
   let ebayResult = $state<EbayImportResult | null>(null);
   let whatnotResult = $state<WhatnotImportResult | null>(null);
@@ -62,6 +86,18 @@
     }).format(cents / 100);
   }
 
+  function shortDate(value: string) {
+    const parsed = Date.parse(value);
+    if (!Number.isFinite(parsed)) return value;
+    return new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit'
+    }).format(new Date(parsed));
+  }
+
   function resetResults() {
     error = null;
     ebayResult = null;
@@ -69,16 +105,32 @@
     ledgerResult = null;
   }
 
-  function selectMarketplace(value: Marketplace) {
+  function setMarketplace(value: Marketplace) {
     marketplace = value;
     files = [];
     resetResults();
   }
 
-  function selectWhatnotMode(value: WhatnotMode) {
+  function setWhatnotMode(value: WhatnotMode) {
     whatnotMode = value;
     files = [];
     resetResults();
+  }
+
+  function takeFiles(selected: File[]) {
+    const csvs = selected.filter((file) => file.name.toLowerCase().endsWith('.csv'));
+    files = marketplace === 'ebay' ? csvs.slice(0, 1) : csvs;
+    resetResults();
+
+    if (selected.length && !csvs.length) {
+      error = 'Choose a CSV export.';
+    }
+  }
+
+  function handleDrop(event: DragEvent) {
+    event.preventDefault();
+    dragging = false;
+    takeFiles([...(event.dataTransfer?.files ?? [])]);
   }
 
   async function submit(event: SubmitEvent) {
@@ -97,29 +149,34 @@
         ? '/api/whatnot/import-ledger'
         : '/api/whatnot/import-orders';
 
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      body: form
-    });
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        body: form
+      });
 
-    const payload = await response.json() as
-      | (EbayImportResult & { error?: string })
-      | (WhatnotImportResult & { error?: string })
-      | (WhatnotLedgerResult & { error?: string });
+      const payload = await response.json() as
+        | (EbayImportResult & { error?: string })
+        | (WhatnotImportResult & { error?: string })
+        | (WhatnotLedgerResult & { error?: string });
 
-    importing = false;
+      if (!response.ok) {
+        error = payload.error ?? 'Import failed.';
+        return;
+      }
 
-    if (!response.ok) {
-      error = payload.error ?? 'Import failed.';
-      return;
-    }
-
-    if (marketplace === 'ebay') {
-      ebayResult = payload as EbayImportResult;
-    } else if (whatnotMode === 'ledger') {
-      ledgerResult = payload as WhatnotLedgerResult;
-    } else {
-      whatnotResult = payload as WhatnotImportResult;
+      if (marketplace === 'ebay') {
+        ebayResult = payload as EbayImportResult;
+        await invalidateAll();
+      } else if (whatnotMode === 'ledger') {
+        ledgerResult = payload as WhatnotLedgerResult;
+      } else {
+        whatnotResult = payload as WhatnotImportResult;
+      }
+    } catch {
+      error = 'Sellquity could not upload this report. Try the export again.';
+    } finally {
+      importing = false;
     }
   }
 
@@ -131,17 +188,9 @@
         : 'Whatnot Weekly Orders Report CSV'
   );
 
-  const pickerEmpty = $derived(
-    marketplace === 'ebay'
-      ? 'Choose a CSV file'
-      : whatnotMode === 'ledger'
-        ? 'Choose one or more ledger CSV exports'
-        : 'Choose one or more weekly CSV reports'
-  );
-
   const importLabel = $derived(
     marketplace === 'ebay'
-      ? 'Import eBay transactions'
+      ? 'Import eBay report'
       : whatnotMode === 'ledger'
         ? 'Import Whatnot ledger'
         : 'Import Whatnot orders'
@@ -149,439 +198,790 @@
 </script>
 
 <svelte:head>
-  <title>Import marketplace data · Sellquity</title>
+  <title>eBay data import · Sellquity</title>
+  <meta
+    name="description"
+    content="Import eBay Seller Hub transaction reports into Sellquity sales, inventory, fees, shipping, payouts, COGS, and profit."
+  />
 </svelte:head>
 
-<main class="import-shell">
-  <a class="back" href="/">← Back to Sellquity</a>
+<div class="import-shell">
+  <header class="topbar">
+    <a class="back" href="/"><ArrowLeft size={16} /> Sellquity</a>
+    <span class="mode-pill"><FileSpreadsheet size={14} /> DATA &amp; IMPORTS</span>
+  </header>
 
-  <section class="card">
-    <span class="eyebrow">SELLQUITY · MARKETPLACE IMPORTS</span>
-    <h1>Bring in seller history</h1>
-    <p class="intro">
-      Marketplace exports feed the same normalized reseller workspace.
-      Re-importing the same report is safe: Sellquity uses deterministic marketplace identities.
-    </p>
-
-    <div class="marketplace-tabs">
-      <button
-        type="button"
-        class:active={marketplace === 'whatnot'}
-        onclick={() => selectMarketplace('whatnot')}
-      >
-        <span class="whatnot-mark">W</span>
-        <span><strong>Whatnot</strong><small>Orders + ledger</small></span>
-      </button>
-      <button
-        type="button"
-        class:active={marketplace === 'ebay'}
-        onclick={() => selectMarketplace('ebay')}
-      >
-        <span class="ebay-mark">e</span>
-        <span><strong>eBay</strong><small>Transaction report</small></span>
-      </button>
-    </div>
-
-    {#if marketplace === 'whatnot'}
-      <div class="whatnot-modes">
-        <button
-          type="button"
-          class:active={whatnotMode === 'orders'}
-          onclick={() => selectWhatnotMode('orders')}
-        >
-          <strong>Orders & profit</strong>
-          <small>Weekly Orders Reports</small>
-        </button>
-        <button
-          type="button"
-          class:active={whatnotMode === 'ledger'}
-          onclick={() => selectWhatnotMode('ledger')}
-        >
-          <strong>Balance & payouts</strong>
-          <small>Ledger export</small>
-        </button>
-      </div>
-
-      {#if whatnotMode === 'orders'}
-        <div class="report-note">
-          <strong>Weekly Orders Reports drive P&amp;L.</strong>
-          Sellquity uses them for gross sales, marketplace fees, seller-paid shipping, SKU matching,
-          and COGS.
-        </div>
-      {:else}
-        <div class="report-note">
-          <strong>The Ledger drives balance reconciliation.</strong>
-          Sales earnings are recorded as account-balance movement without being counted as revenue
-          a second time. Tips become income; payouts stay excluded from P&amp;L.
-        </div>
-      {/if}
-    {:else}
-      <div class="report-note">
-        <strong>Advanced / fallback.</strong>
-        Use the Transaction report exported from eBay Seller Hub for historical backfill or reconciliation.
-      </div>
-    {/if}
-
-    <form onsubmit={submit}>
-      <label class="file-box">
-        <strong>{pickerLabel}</strong>
-        <span>
-          {files.length
-            ? files.length === 1
-              ? files[0].name
-              : `${files.length} files selected`
-            : pickerEmpty}
-        </span>
-        <input
-          type="file"
-          accept=".csv,text/csv"
-          multiple={marketplace === 'whatnot'}
-          onchange={(event) => {
-            const selected = [...(event.currentTarget.files ?? [])];
-            files = marketplace === 'whatnot' ? selected : selected.slice(0, 1);
-          }}
-        />
-      </label>
-
-      <button class="import-button" disabled={!files.length || importing}>
-        {importing ? 'Importing…' : importLabel}
-      </button>
-    </form>
-
-    {#if error}
-      <div class="message error">{error}</div>
-    {/if}
-
-    {#if whatnotResult}
-      <div class="message success">
-        <strong>Whatnot order import complete.</strong>
-        <p>{whatnotResult.filesImported} weekly report{whatnotResult.filesImported === 1 ? '' : 's'} processed.</p>
-
-        <div class="stats whatnot-stats">
-          <span><b>{whatnotResult.ordersImported}</b> orders</span>
-          <span><b>{whatnotResult.feesImported}</b> fee rows</span>
-          <span><b>{whatnotResult.sellerShippingImported}</b> seller shipping</span>
-          <span><b>{whatnotResult.giveaways}</b> giveaways</span>
-          <span><b>{whatnotResult.inventoryMatched}</b> SKU matches</span>
-          <span><b>{whatnotResult.inventoryCreated}</b> history records</span>
-        </div>
-
-        {#if whatnotResult.skuConflicts}
-          <p class="warning">
-            {whatnotResult.skuConflicts} SKU conflict{whatnotResult.skuConflicts === 1 ? '' : 's'}
-            were imported using separate history records.
-          </p>
-        {/if}
-
-        {#if whatnotResult.unreconciledRows}
-          <p class="warning">
-            {whatnotResult.unreconciledRows} row{whatnotResult.unreconciledRows === 1 ? '' : 's'}
-            required a reconciliation adjustment.
-          </p>
-        {/if}
-
-        <div class="result-links">
-          <a class="dashboard" href="/">Open dashboard →</a>
-          <a class="secondary-link" href="/cogs">Open COGS Desk →</a>
-        </div>
-      </div>
-    {/if}
-
-    {#if ledgerResult}
-      <div class="message success">
-        <strong>Whatnot Ledger import complete.</strong>
-        <p>{ledgerResult.filesImported} ledger export{ledgerResult.filesImported === 1 ? '' : 's'} processed.</p>
-
-        <div class="stats ledger-stats">
-          <span><b>{ledgerResult.salesEntries}</b> sales entries</span>
-          <span><b>{ledgerResult.tipEntries}</b> tips</span>
-          <span><b>{ledgerResult.payoutEntries}</b> payouts</span>
-          <span><b>{money(ledgerResult.salesEarningsCents)}</b> sales earnings</span>
-          <span><b>{money(ledgerResult.tipIncomeCents)}</b> tip income</span>
-          <span><b>{money(ledgerResult.netBalanceChangeCents)}</b> net balance change</span>
-        </div>
-
-        {#if ledgerResult.pendingRows}
-          <p class="warning">
-            {ledgerResult.pendingRows} ledger row{ledgerResult.pendingRows === 1 ? '' : 's'} are still pending.
-            They are retained for reconciliation but do not affect accounting yet.
-          </p>
-        {/if}
-
+  <main>
+    <section class="hero">
+      <div class="hero-copy">
+        <span class="eyebrow">EBAY · SELLER HUB</span>
+        <h1>Your eBay accounting sync.<br /><em>No API required.</em></h1>
         <p>
-          Ledger SALES rows do not add revenue again. Weekly Orders Reports remain the canonical
-          sales P&amp;L source.
+          Until direct eBay access is available, the official Transaction report is Sellquity's
+          normal data feed—not a fallback. Drop it here and Sellquity reconciles the money trail
+          and closes sold inventory by durable identity.
         </p>
 
-        <div class="result-links">
-          <a class="dashboard" href="/reconciliation">Open reconciliation →</a>
-          <a class="secondary-link" href="/">Open dashboard →</a>
+        <div class="flow">
+          <span><b>1</b><small>Export</small><strong>Seller Hub report</strong></span>
+          <i>→</i>
+          <span><b>2</b><small>Import</small><strong>Drop CSV</strong></span>
+          <i>→</i>
+          <span><b>3</b><small>Reconcile</small><strong>Profit + inventory</strong></span>
         </div>
       </div>
-    {/if}
 
-    {#if ebayResult}
-      <div class="message success">
-        <strong>eBay import complete.</strong>
-        <div class="stats">
-          <span><b>{ebayResult.ordersImported}</b> orders</span>
-          <span><b>{ebayResult.sellingFeesImported}</b> selling fees</span>
-          <span><b>{ebayResult.shippingLabelsImported}</b> shipping labels</span>
-          <span><b>{ebayResult.payoutsImported}</b> payouts</span>
+      <aside class="what-updates">
+        <span class="eyebrow">ONE FILE UPDATES</span>
+        <div><ReceiptText size={17} /><span><strong>Sales &amp; fees</strong><small>Orders and marketplace charges</small></span></div>
+        <div><PackageCheck size={17} /><span><strong>Shipping labels</strong><small>Seller-paid postage</small></span></div>
+        <div><WalletCards size={17} /><span><strong>Payout trail</strong><small>Recorded, never double-counted as P&amp;L</small></span></div>
+        <div><Tag size={17} /><span><strong>Inventory status</strong><small>Item ID / listing ID / SKU → Sold</small></span></div>
+      </aside>
+    </section>
+
+    <section class="work-grid">
+      <article class="import-card">
+        <div class="card-heading">
+          <div>
+            <span class="eyebrow">IMPORT NOW</span>
+            <h2>eBay Transaction report</h2>
+          </div>
+          <span class="safe-pill"><Check size={13} /> Duplicate-safe</span>
         </div>
 
-        {#if ebayResult.unallocatedTransactions}
-          <p>
-            {ebayResult.unallocatedTransactions} transaction{ebayResult.unallocatedTransactions === 1 ? '' : 's'}
-            could not be tied to an order and were retained as account-level adjustments.
-          </p>
+        <div class="report-note">
+          <strong>Use the Transaction report exported from eBay Seller Hub.</strong>
+          Sellquity uses the Custom label as your SKU when available. If you entered the eBay Item ID
+          during Listing Prep, that identity takes priority.
+        </div>
+
+        <form onsubmit={submit}>
+          <label
+            class:dragging
+            class="dropzone"
+            ondragenter={(event) => {
+              event.preventDefault();
+              dragging = true;
+            }}
+            ondragover={(event) => {
+              event.preventDefault();
+              dragging = true;
+            }}
+            ondragleave={() => dragging = false}
+            ondrop={handleDrop}
+          >
+            <input
+              class="file-input"
+              type="file"
+              accept=".csv,text/csv"
+              onchange={(event) => takeFiles([...(event.currentTarget.files ?? [])])}
+            />
+            <span class="upload-icon"><CloudUpload size={29} /></span>
+
+            {#if files.length}
+              <span class="file-selected">
+                <small>READY TO IMPORT</small>
+                <strong>{files[0].name}</strong>
+                <em>{(files[0].size / 1024).toFixed(1)} KB</em>
+              </span>
+            {:else}
+              <span class="drop-copy">
+                <strong>Drop your eBay CSV here</strong>
+                <small>or click to choose the Transaction report</small>
+              </span>
+            {/if}
+          </label>
+
+          <button class="import-button" disabled={!files.length || importing}>
+            {#if importing}<RefreshCw class="spin" size={17} />{/if}
+            {importing ? 'Reconciling eBay data…' : importLabel}
+          </button>
+        </form>
+
+        {#if error}
+          <div class="message error"><AlertTriangle size={18} /><span>{error}</span></div>
         {/if}
 
-        <a class="dashboard" href="/">Open dashboard →</a>
+        {#if ebayResult}
+          <div class="message success">
+            <div class="success-head">
+              <span class="success-icon"><Check size={19} /></span>
+              <div>
+                <strong>eBay import complete.</strong>
+                <small>{ebayResult.rowsImported} report rows reconciled</small>
+              </div>
+            </div>
+
+            <div class="stats">
+              <span><b>{ebayResult.ordersImported}</b><small>order rows</small></span>
+              <span><b>{ebayResult.sellingFeesImported}</b><small>selling fees</small></span>
+              <span><b>{ebayResult.shippingLabelsImported}</b><small>shipping labels</small></span>
+              <span><b>{ebayResult.payoutsImported}</b><small>payouts</small></span>
+            </div>
+
+            <div class="inventory-reconcile">
+              <div>
+                <Tag size={18} />
+                <span>
+                  <strong>{ebayResult.inventoryMatched} existing inventory match{ebayResult.inventoryMatched === 1 ? '' : 'es'}</strong>
+                  <small>Matched by eBay Item ID, tracked listing ID, or exact SKU/custom label.</small>
+                </span>
+              </div>
+              <div>
+                <PackageCheck size={18} />
+                <span>
+                  <strong>{ebayResult.listingsEnded} live listing{ebayResult.listingsEnded === 1 ? '' : 's'} closed</strong>
+                  <small>Matched Sellquity inventory moved to Sold automatically.</small>
+                </span>
+              </div>
+              <div>
+                <WalletCards size={18} />
+                <span>
+                  <strong>{ebayResult.cogsPreserved} matched COGS value{ebayResult.cogsPreserved === 1 ? '' : 's'} preserved</strong>
+                  <small>Purchase cost, source, storage location, and SKU stay attached to your item.</small>
+                </span>
+              </div>
+            </div>
+
+            {#if ebayResult.inventoryCreated}
+              <p class="result-note">
+                {ebayResult.inventoryCreated} sale{ebayResult.inventoryCreated === 1 ? '' : 's'} had no
+                existing Sellquity inventory identity, so historical Sold records were created.
+              </p>
+            {/if}
+
+            {#if ebayResult.unallocatedTransactions}
+              <p class="warning">
+                <AlertTriangle size={15} />
+                {ebayResult.unallocatedTransactions} account-level adjustment{ebayResult.unallocatedTransactions === 1 ? '' : 's'}
+                could not be tied to an order. They were retained in Accounting.
+              </p>
+            {/if}
+
+            <div class="result-links">
+              <a class="primary-link" href="/">Open dashboard →</a>
+              <a href="/cogs">Review COGS →</a>
+              <a href="/listing-prep">Listing Prep →</a>
+            </div>
+          </div>
+        {/if}
+      </article>
+
+      <aside class="side-stack">
+        <section class="history-card">
+          <div class="card-heading compact">
+            <div>
+              <span class="eyebrow">IMPORT HISTORY</span>
+              <h2>Recent eBay reports</h2>
+            </div>
+          </div>
+
+          {#if data.recentEbayImports.length}
+            <div class="history-list">
+              {#each data.recentEbayImports as batch}
+                <div class="history-row">
+                  <span class="history-icon"><FileSpreadsheet size={15} /></span>
+                  <span>
+                    <strong>{batch.filename ?? 'eBay Transaction report'}</strong>
+                    <small>{shortDate(batch.importedAt)} · {batch.ordersImported} orders · {batch.transactionsImported} ledger rows</small>
+                  </span>
+                </div>
+              {/each}
+            </div>
+          {:else}
+            <div class="history-empty">
+              <FileSpreadsheet size={22} />
+              <strong>No eBay reports imported yet.</strong>
+              <small>Your first successful import will show here.</small>
+            </div>
+          {/if}
+        </section>
+
+        <section class="identity-card">
+          <span class="eyebrow">THE CLOSED LOOP</span>
+          <h2>Listing Prep now talks to Accounting.</h2>
+          <p>
+            Put the Sellquity SKU in eBay's Custom label field. When that item appears in a
+            Transaction report, Sellquity can link the sale back to your original inventory record,
+            preserve COGS, end the listing, and mark the item Sold.
+          </p>
+          <a href="/listing-prep"><Tag size={15} /> Open Listing Prep</a>
+        </section>
+      </aside>
+    </section>
+
+    <details class="other-imports">
+      <summary>
+        <span><ShoppingBag size={17} /><strong>Other marketplace imports</strong><small>Whatnot is parked, not deleted</small></span>
+        <ChevronDown size={18} />
+      </summary>
+
+      <div class="other-body">
+        <div class="other-heading">
+          <div>
+            <span class="eyebrow">PARKED MULTI-MARKETPLACE TOOLS</span>
+            <h2>Whatnot CSV pipelines</h2>
+          </div>
+          <div class="marketplace-tabs">
+            <button class:active={marketplace === 'ebay'} type="button" onclick={() => setMarketplace('ebay')}>eBay</button>
+            <button class:active={marketplace === 'whatnot'} type="button" onclick={() => setMarketplace('whatnot')}>Whatnot</button>
+          </div>
+        </div>
+
+        {#if marketplace === 'ebay'}
+          <p class="other-copy">
+            eBay is the active personal workflow. Use the main importer above for normal Sellquity accounting.
+          </p>
+        {:else}
+          <div class="whatnot-modes">
+            <button class:active={whatnotMode === 'orders'} type="button" onclick={() => setWhatnotMode('orders')}>
+              <strong>Orders &amp; profit</strong><small>Weekly Orders Reports</small>
+            </button>
+            <button class:active={whatnotMode === 'ledger'} type="button" onclick={() => setWhatnotMode('ledger')}>
+              <strong>Balance &amp; payouts</strong><small>Ledger export</small>
+            </button>
+          </div>
+
+          <form class="secondary-form" onsubmit={submit}>
+            <label class="secondary-picker">
+              <span>
+                <strong>{pickerLabel}</strong>
+                <small>{files.length ? `${files.length} file${files.length === 1 ? '' : 's'} selected` : 'Choose one or more CSV exports'}</small>
+              </span>
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                multiple
+                onchange={(event) => takeFiles([...(event.currentTarget.files ?? [])])}
+              />
+            </label>
+            <button class="secondary-import" disabled={!files.length || importing}>
+              {importing ? 'Importing…' : importLabel}
+            </button>
+          </form>
+
+          {#if whatnotResult}
+            <div class="secondary-result">
+              <strong>Whatnot order import complete.</strong>
+              <span>{whatnotResult.ordersImported} orders · {whatnotResult.feesImported} fees · {whatnotResult.inventoryMatched} SKU matches</span>
+            </div>
+          {/if}
+
+          {#if ledgerResult}
+            <div class="secondary-result">
+              <strong>Whatnot Ledger import complete.</strong>
+              <span>{ledgerResult.salesEntries} sales entries · {ledgerResult.tipEntries} tips · {money(ledgerResult.netBalanceChangeCents)} net balance change</span>
+            </div>
+          {/if}
+
+          {#if error}
+            <div class="message error compact-error"><AlertTriangle size={16} /><span>{error}</span></div>
+          {/if}
+        {/if}
       </div>
-    {/if}
-  </section>
-</main>
+    </details>
+  </main>
+</div>
 
 <style>
   :global(body) {
     margin: 0;
-    background: #080d12;
-    color: #e8eee9;
-    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background:
+      radial-gradient(circle at 72% -18%, #0069e31f 0, transparent 34rem),
+      #050b14;
+    color: #f4f8ff;
+    font-family: "Arial Narrow", "Roboto Condensed", Inter, ui-sans-serif, system-ui, sans-serif;
   }
 
   * { box-sizing: border-box; }
 
-  .import-shell {
-    min-height: 100vh;
-    padding: 48px 24px;
-    display: grid;
-    align-content: start;
-    justify-items: center;
-    gap: 18px;
+  .import-shell { min-height: 100vh; }
+  .topbar {
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 max(22px, calc((100vw - 1180px) / 2));
+    border-bottom: 1px solid #17304a;
+    background: #07111bd9;
+    backdrop-filter: blur(14px);
   }
 
-  .back {
-    width: min(760px, 100%);
-    color: #91a0ac;
+  .back, .mode-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
     text-decoration: none;
-    font-size: 14px;
   }
 
-  .card {
-    width: min(760px, 100%);
-    background: #0e151c;
-    border: 1px solid #293640;
-    border-radius: 20px;
-    padding: 34px;
-    box-shadow: 0 24px 70px rgba(0, 0, 0, .32);
+  .back { color: #91a8bc; font-size: .78rem; font-weight: 850; }
+  .back:hover { color: #01d0e9; }
+  .mode-pill {
+    border: 1px solid #1d4866;
+    border-radius: 999px;
+    padding: 6px 10px;
+    color: #61e7d3;
+    background: #09202b;
+    font: 800 .66rem "SFMono-Regular", Consolas, monospace;
+    letter-spacing: .08em;
+  }
+
+  main {
+    width: min(1180px, calc(100% - 36px));
+    margin: 0 auto;
+    padding: 54px 0 80px;
+  }
+
+  .hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(300px, .72fr);
+    gap: 28px;
+    align-items: end;
+    margin-bottom: 24px;
   }
 
   .eyebrow {
     color: #01d4a5;
-    font-size: 11px;
-    font-weight: 850;
+    font: 850 .68rem "SFMono-Regular", Consolas, monospace;
     letter-spacing: .14em;
   }
 
   h1 {
-    margin: 8px 0 10px;
-    font-size: clamp(30px, 5vw, 44px);
-    letter-spacing: -.035em;
+    margin: 9px 0 15px;
+    max-width: 810px;
+    font-size: clamp(2.2rem, 5.2vw, 4.6rem);
+    line-height: .94;
+    letter-spacing: -.055em;
   }
 
-  .intro {
-    color: #8997a2;
+  h1 em {
+    color: #01d0e9;
+    font-style: normal;
+  }
+
+  h2 { margin: 5px 0 0; letter-spacing: -.025em; }
+  .hero-copy > p {
+    max-width: 760px;
+    margin: 0;
+    color: #8da0ba;
     line-height: 1.65;
-    margin-bottom: 22px;
+    font-size: .91rem;
   }
 
-  .marketplace-tabs,
-  .whatnot-modes {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-  }
-
-  .marketplace-tabs { margin-bottom: 12px; }
-  .whatnot-modes { margin-bottom: 14px; }
-
-  .marketplace-tabs button,
-  .whatnot-modes button {
-    border: 1px solid #2d3943;
-    border-radius: 12px;
-    background: #0a1016;
-    color: #dbe4de;
-    cursor: pointer;
-  }
-
-  .marketplace-tabs button {
+  .flow {
     display: flex;
     align-items: center;
+    gap: 11px;
+    margin-top: 25px;
+  }
+
+  .flow > span {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 8px;
+    align-items: center;
+    border: 1px solid #173a54;
+    border-radius: 10px;
+    padding: 9px 11px;
+    background: #081521;
+  }
+
+  .flow b {
+    grid-row: 1 / 3;
+    width: 25px; height: 25px;
+    display: grid; place-items: center;
+    border-radius: 7px;
+    color: #03131a;
+    background: linear-gradient(135deg, #0069e3, #01d0e9 55%, #01d4a5);
+    font-size: .7rem;
+  }
+  .flow small { color: #607c94; font-size: .6rem; text-transform: uppercase; letter-spacing: .08em; }
+  .flow strong { font-size: .74rem; }
+  .flow i { color: #3c6680; font-style: normal; }
+
+  .what-updates {
+    display: grid;
+    gap: 12px;
+    border: 1px solid #193b55;
+    border-radius: 15px;
+    padding: 20px;
+    background: linear-gradient(145deg, #0c1b2b, #08131f);
+    box-shadow: 0 14px 40px #00000030;
+  }
+
+  .what-updates > div {
+    display: grid;
+    grid-template-columns: auto 1fr;
     gap: 10px;
-    padding: 12px;
-    text-align: left;
+    align-items: center;
   }
 
-  .whatnot-modes button {
+  .what-updates :global(svg) { color: #01d0e9; }
+  .what-updates div span { display: flex; flex-direction: column; gap: 2px; }
+  .what-updates strong { font-size: .77rem; }
+  .what-updates small { color: #68849c; font-size: .66rem; line-height: 1.35; }
+
+  .work-grid {
     display: grid;
-    gap: 2px;
-    padding: 11px 12px;
-    text-align: left;
+    grid-template-columns: minmax(0, 1.45fr) minmax(300px, .65fr);
+    gap: 18px;
+    align-items: start;
   }
 
-  .marketplace-tabs button.active,
-  .whatnot-modes button.active {
-    border-color: #11698a;
-    box-shadow: 0 0 0 1px #11698a55;
-    background: #0a1722;
+  .import-card, .history-card, .identity-card, .other-imports {
+    border: 1px solid #19314f;
+    border-radius: 15px;
+    background: linear-gradient(145deg, #0d1928 0%, #09131f 100%);
+    box-shadow: 0 12px 38px #0000002b;
   }
 
-  .marketplace-tabs button > span:last-child {
+  .import-card { padding: 24px; }
+  .card-heading {
     display: flex;
-    flex-direction: column;
-    gap: 2px;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
   }
+  .card-heading.compact { margin-bottom: 14px; }
 
-  .marketplace-tabs small,
-  .whatnot-modes small {
-    color: #687682;
-    font-size: 11px;
+  .safe-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border: 1px solid #155b62;
+    border-radius: 999px;
+    padding: 5px 8px;
+    color: #67ead7;
+    background: #08262b;
+    font-size: .65rem;
+    font-weight: 850;
   }
-
-  .whatnot-mark, .ebay-mark {
-    width: 34px;
-    height: 34px;
-    display: grid;
-    place-items: center;
-    border-radius: 8px;
-    font-weight: 950;
-  }
-
-  .whatnot-mark { background: #01d4a5; color: #03131a; }
-  .ebay-mark { background: #eef3f6; color: #14202a; }
 
   .report-note {
-    margin-bottom: 20px;
-    border: 1px solid #2c3942;
-    border-radius: 10px;
-    padding: 11px 12px;
-    color: #7d8b96;
-    background: #0a1117;
-    font-size: 12px;
-    line-height: 1.55;
-  }
-
-  .report-note strong { color: #b7c4cd; }
-
-  form {
-    display: grid;
-    gap: 14px;
-  }
-
-  .file-box {
-    display: grid;
-    gap: 7px;
-    padding: 22px;
-    border: 1px dashed #465660;
-    border-radius: 14px;
-    background: #090f14;
-    cursor: pointer;
-  }
-
-  .file-box span { color: #82919c; font-size: 14px; }
-  .file-box input { margin-top: 8px; }
-
-  .import-button,
-  .dashboard {
-    display: inline-flex;
-    justify-content: center;
-    border: 0;
-    border-radius: 10px;
-    padding: 13px 18px;
-    background: #01d4a5;
-    color: #03131a;
-    font: inherit;
-    font-weight: 900;
-    text-decoration: none;
-    cursor: pointer;
-  }
-
-  .import-button:disabled {
-    opacity: .45;
-    cursor: not-allowed;
-  }
-
-  .message {
-    margin-top: 22px;
-    padding: 18px;
-    border-radius: 13px;
+    margin: 19px 0;
+    border-left: 3px solid #01d0e9;
+    padding: 11px 13px;
+    color: #7f98ad;
+    background: #071521;
+    font-size: .76rem;
     line-height: 1.5;
   }
+  .report-note strong { color: #dbeaf5; }
 
-  .error {
-    border: 1px solid #673239;
-    background: #2a151a;
-    color: #ffb5bd;
+  form { display: grid; gap: 11px; }
+
+  .dropzone {
+    min-height: 190px;
+    display: grid;
+    place-items: center;
+    gap: 11px;
+    border: 1px dashed #256083;
+    border-radius: 14px;
+    padding: 26px;
+    background:
+      radial-gradient(circle at 50% 0%, #0069e312 0, transparent 18rem),
+      #07121d;
+    cursor: pointer;
+    text-align: center;
+    transition: 150ms ease;
   }
 
-  .success {
-    border: 1px solid #365229;
-    background: #111d0e;
+  .dropzone:hover, .dropzone.dragging {
+    border-color: #01d0e9;
+    background:
+      radial-gradient(circle at 50% 0%, #01d0e91b 0, transparent 18rem),
+      #081826;
+    box-shadow: inset 0 0 0 1px #01d0e914;
   }
+
+  .file-input {
+    position: absolute;
+    width: 1px; height: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .upload-icon {
+    width: 53px; height: 53px;
+    display: grid; place-items: center;
+    border: 1px solid #1e5f7c;
+    border-radius: 14px;
+    color: #68ecdc;
+    background: linear-gradient(145deg, #092944, #09232d);
+  }
+
+  .drop-copy, .file-selected { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .drop-copy strong { font-size: .9rem; }
+  .drop-copy small { color: #6d879d; font-size: .73rem; }
+
+  .file-selected small {
+    color: #01d4a5;
+    font: 800 .6rem "SFMono-Regular", Consolas, monospace;
+    letter-spacing: .1em;
+  }
+  .file-selected strong { max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .85rem; }
+  .file-selected em { color: #638096; font-style: normal; font-size: .68rem; }
+
+  .import-button {
+    min-height: 46px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border: 0;
+    border-radius: 9px;
+    color: #03131a;
+    background: linear-gradient(135deg, #0069e3, #01d0e9 55%, #01d4a5);
+    box-shadow: 0 8px 24px #0069e329;
+    font-weight: 900;
+    cursor: pointer;
+  }
+
+  .import-button:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
+  :global(.spin) { animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .message {
+    margin-top: 15px;
+    border-radius: 12px;
+    padding: 15px;
+  }
+  .message.error {
+    display: flex;
+    gap: 9px;
+    align-items: flex-start;
+    border: 1px solid #69343b;
+    color: #ff9ca3;
+    background: #281319;
+    font-size: .76rem;
+  }
+  .message.success {
+    border: 1px solid #165564;
+    background:
+      radial-gradient(circle at 8% 0%, #01d4a50d 0, transparent 15rem),
+      #08202a;
+  }
+
+  .success-head { display: flex; align-items: center; gap: 10px; }
+  .success-icon {
+    width: 37px; height: 37px;
+    display: grid; place-items: center;
+    border-radius: 10px;
+    color: #03131a;
+    background: linear-gradient(135deg, #01d0e9, #01d4a5);
+  }
+  .success-head > div { display: flex; flex-direction: column; gap: 2px; }
+  .success-head strong { font-size: .88rem; }
+  .success-head small { color: #71a4b4; font-size: .68rem; }
 
   .stats {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 9px;
-    margin: 16px 0;
-  }
-
-  .whatnot-stats,
-  .ledger-stats {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .stats span {
-    padding: 11px;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    margin-top: 14px;
+    border: 1px solid #174052;
     border-radius: 9px;
-    background: rgba(255, 255, 255, .045);
-    color: #aebbc4;
-    font-size: 12px;
+    overflow: hidden;
+    background: #174052;
+  }
+  .stats span {
+    display: flex; flex-direction: column; gap: 2px;
+    padding: 10px;
+    background: #091a24;
+  }
+  .stats b { font-size: .95rem; }
+  .stats small { color: #64869a; font-size: .61rem; }
+
+  .inventory-reconcile { display: grid; gap: 8px; margin-top: 12px; }
+  .inventory-reconcile > div {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 9px;
+    align-items: center;
+    border: 1px solid #144354;
+    border-radius: 8px;
+    padding: 9px 10px;
+    background: #071923;
+  }
+  .inventory-reconcile :global(svg) { color: #01d4a5; }
+  .inventory-reconcile span { display: flex; flex-direction: column; gap: 1px; }
+  .inventory-reconcile strong { font-size: .72rem; }
+  .inventory-reconcile small { color: #66889b; font-size: .62rem; line-height: 1.35; }
+
+  .result-note {
+    margin: 11px 0 0;
+    color: #7e9bad;
+    font-size: .69rem;
+    line-height: 1.45;
+  }
+  .warning {
+    display: flex;
+    gap: 7px;
+    margin: 11px 0 0;
+    color: #e8bd68;
+    font-size: .69rem;
+    line-height: 1.45;
   }
 
-  .stats b {
-    display: block;
-    color: #fff;
-    font-size: 21px;
+  .result-links { display: flex; flex-wrap: wrap; gap: 13px; margin-top: 14px; }
+  .result-links a {
+    color: #82cbd8;
+    text-decoration: none;
+    font-size: .7rem;
+    font-weight: 850;
+  }
+  .result-links a:hover, .result-links .primary-link { color: #01d4a5; }
+
+  .side-stack { display: grid; gap: 18px; }
+  .history-card, .identity-card { padding: 19px; }
+
+  .history-list { display: grid; }
+  .history-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 9px;
+    align-items: center;
+    padding: 10px 0;
+    border-top: 1px solid #173047;
+  }
+  .history-row:first-child { border-top: 0; padding-top: 2px; }
+  .history-icon {
+    width: 30px; height: 30px;
+    display: grid; place-items: center;
+    border-radius: 8px;
+    color: #01d0e9;
+    background: #092335;
+  }
+  .history-row > span:last-child { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .history-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .7rem; }
+  .history-row small { color: #607d93; font-size: .6rem; line-height: 1.35; }
+
+  .history-empty {
+    min-height: 150px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+    color: #55748b;
+    text-align: center;
+  }
+  .history-empty strong { color: #9bb0c2; font-size: .75rem; }
+  .history-empty small { font-size: .63rem; }
+
+  .identity-card h2 { margin-top: 6px; font-size: 1.05rem; }
+  .identity-card p { color: #7890a5; font-size: .72rem; line-height: 1.55; }
+  .identity-card a {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: #01d4a5;
+    text-decoration: none;
+    font-size: .7rem;
+    font-weight: 850;
   }
 
-  .warning { color: #e0bd71; }
-
-  .result-links {
+  .other-imports { margin-top: 18px; overflow: hidden; }
+  .other-imports summary {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 12px;
-    flex-wrap: wrap;
-    margin-top: 8px;
+    padding: 16px 18px;
+    cursor: pointer;
+    list-style: none;
+  }
+  .other-imports summary::-webkit-details-marker { display: none; }
+  .other-imports summary > span {
+    display: grid;
+    grid-template-columns: auto auto;
+    align-items: center;
+    column-gap: 8px;
+  }
+  .other-imports summary strong { font-size: .77rem; }
+  .other-imports summary small {
+    grid-column: 2;
+    color: #617d93;
+    font-size: .61rem;
+  }
+  .other-imports[open] summary { border-bottom: 1px solid #19314f; }
+  .other-imports[open] summary > :global(svg:last-child) { transform: rotate(180deg); }
+  .other-body { padding: 18px; }
+  .other-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 15px; }
+  .other-copy { color: #7890a5; font-size: .73rem; }
+
+  .marketplace-tabs, .whatnot-modes { display: flex; gap: 6px; }
+  .marketplace-tabs button, .whatnot-modes button {
+    border: 1px solid #24465f;
+    border-radius: 8px;
+    color: #8da3b5;
+    background: #09141f;
+    cursor: pointer;
+  }
+  .marketplace-tabs button { padding: 7px 11px; font-size: .68rem; }
+  .marketplace-tabs button.active {
+    border-color: transparent;
+    color: #03131a;
+    background: linear-gradient(135deg, #0069e3, #01d0e9 55%, #01d4a5);
   }
 
-  .secondary-link {
-    color: #a5b1ba;
-    font-size: 13px;
-    font-weight: 800;
-    text-decoration: none;
+  .whatnot-modes { margin: 15px 0 11px; }
+  .whatnot-modes button { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px; }
+  .whatnot-modes button.active { border-color: #17788f; background: #09202a; }
+  .whatnot-modes strong { font-size: .71rem; }
+  .whatnot-modes small { color: #617b90; font-size: .6rem; }
+
+  .secondary-form { grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; }
+  .secondary-picker {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border: 1px solid #24455e;
+    border-radius: 9px;
+    padding: 10px 12px;
+    background: #07131e;
+    cursor: pointer;
+  }
+  .secondary-picker > span { display: flex; flex-direction: column; gap: 2px; }
+  .secondary-picker strong { font-size: .7rem; }
+  .secondary-picker small { color: #607c91; font-size: .61rem; }
+  .secondary-picker input { max-width: 230px; color: #7894a8; font-size: .62rem; }
+
+  .secondary-import {
+    border: 1px solid #1d6078;
+    border-radius: 9px;
+    padding: 0 14px;
+    color: #62e6d4;
+    background: #09222b;
+    font-weight: 850;
+    cursor: pointer;
+  }
+  .secondary-import:disabled { opacity: .45; cursor: not-allowed; }
+
+  .secondary-result {
+    display: flex; justify-content: space-between; gap: 15px;
+    margin-top: 11px;
+    border: 1px solid #18515c;
+    border-radius: 8px;
+    padding: 9px 11px;
+    color: #82d9d1;
+    background: #082229;
+    font-size: .67rem;
+  }
+  .compact-error { margin-top: 11px; }
+
+  @media (max-width: 900px) {
+    .hero, .work-grid { grid-template-columns: 1fr; }
+    .what-updates { grid-template-columns: repeat(2, 1fr); }
+    .flow { flex-wrap: wrap; }
+    .flow i { display: none; }
   }
 
-  .secondary-link:hover { color: #01d4a5; }
-
-  @media (max-width: 640px) {
-    .card { padding: 24px; }
-    .marketplace-tabs,
-    .whatnot-modes { grid-template-columns: 1fr; }
-    .stats,
-    .whatnot-stats,
-    .ledger-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @media (max-width: 620px) {
+    main { width: min(100% - 24px, 1180px); padding-top: 32px; }
+    .topbar { padding: 0 14px; }
+    .mode-pill { display: none; }
+    .what-updates { grid-template-columns: 1fr; }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .other-heading, .secondary-result { align-items: stretch; flex-direction: column; }
+    .secondary-form { grid-template-columns: 1fr; }
+    .secondary-picker { align-items: flex-start; flex-direction: column; }
   }
 </style>
