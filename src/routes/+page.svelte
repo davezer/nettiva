@@ -2,7 +2,7 @@
   import { invalidateAll } from '$app/navigation';
   import {
     AlertTriangle, Archive, ArrowUpRight, BadgeDollarSign, BarChart3, Boxes,
-    CalendarDays, Calculator, Check, ChevronRight, CircleDollarSign, Clock3,
+    CalendarDays, Calculator, Check, ChevronRight, CircleDollarSign, ClipboardCheck, Clock3,
     Cloud, Download, ExternalLink, FileSpreadsheet, Info, LayoutDashboard, LoaderCircle,
     MapPin, PackageCheck, PlugZap, Printer, ReceiptText, RefreshCw, Search, Settings,
     ShoppingBag, ShieldCheck, Tag, TrendingUp, UserRound, WalletCards, X, LogOut
@@ -1013,6 +1013,12 @@
           <span>{item.label}</span>
           {#if view === item.view}<ChevronRight class="nav-arrow" size={15} />{/if}
         </button>
+        {#if item.view === 'inventory'}
+          <a class="nav-route" href="/listing-prep">
+            <ClipboardCheck size={19} />
+            <span>Listing Prep</span>
+          </a>
+        {/if}
       {/each}
     </nav>
 
@@ -1112,7 +1118,7 @@
           <article class="metric-card tone-amber">
             <div class="metric-top"><span>Average age</span><Clock3 size={18} /></div>
             <strong>{avgAge} days</strong>
-            <p>{stale ? `${stale} stale listing${stale === 1 ? '' : 's'}` : activeItems.length ? 'Inventory is moving' : 'Waiting for live listing sync'}</p>
+            <p>{stale ? `${stale} stale listing${stale === 1 ? '' : 's'}` : activeItems.length ? 'Inventory is moving' : 'No active listings yet'}</p>
           </article>
         </section>
 
@@ -1170,8 +1176,8 @@
             {@render inventoryTable(activeItems.slice(0, 5))}
           {:else}
             <div class="empty-state">
-              <strong>Live inventory will appear after eBay API sync.</strong>
-              Your accounting workspace can still run from transaction history while API approval is pending.
+              <strong>No active listings yet.</strong>
+              Mark an item listed from Listing Prep to track price and listing age while eBay API access is pending.
             </div>
           {/if}
         </section>
@@ -1184,7 +1190,11 @@
           <div><span>Scheduled</span><strong>{scheduledItems.length}</strong><small>future marketplace listings</small></div>
           <div><span>Active listings</span><strong>{activeItems.length}</strong><small>{money(activeValue)} listed</small></div>
           <div><span>Inventory cost basis</span><strong>{money(inventoryCostBasis)}</strong><small>unsold purchase cost</small></div>
-          <div class="inventory-summary-actions"><button class="button secondary" onclick={() => skuManagerOpen = true}><Archive size={17} /> SKU manager</button><button class="button primary" onclick={openIntake}><Tag size={17} /> Add inventory</button></div>
+          <div class="inventory-summary-actions">
+            <a class="button secondary" href="/listing-prep"><ClipboardCheck size={17} /> Listing prep</a>
+            <button class="button secondary" onclick={() => skuManagerOpen = true}><Archive size={17} /> SKU manager</button>
+            <button class="button primary" onclick={openIntake}><Tag size={17} /> Add inventory</button>
+          </div>
         </section>
 
         <section class="panel inventory-panel">
@@ -1208,7 +1218,7 @@
         {#if filteredInventory.length}
           {@render inventoryTable(filteredInventory)}
         {:else}
-          <div class="empty-state"><strong>No inventory matches this view.</strong>Live listings will populate automatically as marketplace APIs are connected.</div>
+          <div class="empty-state"><strong>No inventory matches this view.</strong>Add inventory or use Listing Prep to manually track eBay listings while API access is pending.</div>
         {/if}
         </section>
       </div>

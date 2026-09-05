@@ -235,19 +235,7 @@
     padding-bottom: 22px;
     border-bottom: 1px solid #25303a;
   }
-  .auth-mark {
-    width: 36px;
-    height: 36px;
-    display: grid;
-    place-items: center;
-    border-radius: 9px;
-    color: #03131a;
-    background: #01d4a5;
-    font-weight: 950;
-    font-size: 1.15rem;
-  }
   .auth-brand > div { display: flex; flex-direction: column; gap: 1px; }
-  .auth-brand strong { letter-spacing: .12em; font-size: .85rem; }
   .auth-brand small { color: #687581; font-size: .67rem; }
   .auth-copy { padding: 24px 0 18px; }
   .auth-kicker {

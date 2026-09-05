@@ -472,3 +472,29 @@ tbody tr:hover .item-avatar.item-fallback {
     0 5px 18px #0069e324 !important;
 }
 
+/* Listing Prep navigation */
+.sidebar nav .nav-route {
+  position: relative;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  border: 0;
+  border-radius: 9px;
+  padding: 12px;
+  color: #8f9fb0;
+  background: transparent;
+  font-size: .9rem;
+  text-align: left;
+  transition: 150ms ease;
+}
+
+.sidebar nav .nav-route:hover {
+  color: #fff;
+  background: #0e2032;
+}
+
+.sidebar nav .nav-route:hover svg {
+  color: var(--sq-cyan);
+}
+
