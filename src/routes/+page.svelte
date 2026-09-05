@@ -37,6 +37,23 @@
   let query = $state('');
   let filter = $state<Filter>('all');
   let inventoryCategoryFilter = $state<InventoryCategoryFilter>('all');
+  let inventoryLocationFilter = $state('all');
+  let selectedInventoryIds = $state<string[]>([]);
+  let bulkOpen = $state(false);
+  let bulkSaving = $state(false);
+  let bulkMessage = $state<string | null>(null);
+  let bulkApplyLocation = $state(false);
+  let bulkLocation = $state('');
+  let bulkApplySource = $state(false);
+  let bulkSource = $state('');
+  let bulkApplyCategory = $state(false);
+  let bulkCategory = $state<InventoryCategory>('other');
+  let bulkApplyCondition = $state(false);
+  let bulkCondition = $state('');
+  let bulkApplyDate = $state(false);
+  let bulkDate = $state('');
+  let bulkApplyCost = $state(false);
+  let bulkCost = $state('');
   let syncing = $state(false);
   let editing = $state<InventoryRow | null>(null);
   let selectedSale = $state<SaleRow | null>(null);
@@ -48,6 +65,7 @@
   let intakePrefix = $state('AFG');
   let intakeQuantity = $state('1');
   let intakeCost = $state('');
+  let intakeCostMode = $state<'each' | 'total'>('each');
   let intakeSource = $state('');
   let intakeLocation = $state('');
   let intakeCondition = $state('');
@@ -343,6 +361,23 @@
     return `${formatInventorySku(prefix, first)} → ${formatInventorySku(prefix, first + quantity - 1)}`;
   });
 
+  const intakeCostSummary = $derived.by(() => {
+    const quantity = Math.max(1, Math.min(50, Number(intakeQuantity) || 1));
+    const cents = Math.max(0, Math.round((Number(intakeCost) || 0) * 100));
+
+    if (quantity === 1 || intakeCostMode === 'each') {
+      return quantity === 1
+        ? `${money(cents)} COGS`
+        : `${money(cents)} each · ${money(cents * quantity)} total`;
+    }
+
+    const base = Math.floor(cents / quantity);
+    const remainder = cents % quantity;
+    if (!remainder) return `${money(base)} each · exact ${money(cents)} lot total`;
+
+    return `${remainder} item${remainder === 1 ? '' : 's'} at ${money(base + 1)}, ${quantity - remainder} at ${money(base)} · exact ${money(cents)} total`;
+  });
+
   const skuSequencesSafe = $derived(data.skuSequences ?? []);
   const skuReservationsSafe = $derived(data.skuReservations ?? []);
 
@@ -358,12 +393,32 @@
     skuReservationsSafe.filter((reservation) => reservation.source === 'manual_bootstrap')
   );
 
+  const inventoryLocations = $derived(
+    [...new Set(data.inventory.map((item) => item.location?.trim()).filter((value): value is string => Boolean(value)))]
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
+  );
+
   const filteredInventory = $derived(data.inventory.filter((item) => {
     const matchesStatus = filter === 'all' || item.status === filter;
     const matchesCategory = inventoryCategoryFilter === 'all' || item.category === inventoryCategoryFilter;
-    const haystack = `${item.title} ${item.sku ?? ''} ${item.ebayItemId ?? ''} ${inventoryCategoryLabel(item.category)}`.toLowerCase();
-    return matchesStatus && matchesCategory && haystack.includes(query.toLowerCase());
+    const matchesLocation =
+      inventoryLocationFilter === 'all' ||
+      (inventoryLocationFilter === '__unset__' ? !item.location : item.location === inventoryLocationFilter);
+    const haystack = `${item.title} ${item.sku ?? ''} ${item.ebayItemId ?? ''} ${inventoryCategoryLabel(item.category)} ${item.location ?? ''} ${item.source ?? ''} ${item.conditionName ?? ''}`.toLowerCase();
+    return matchesStatus && matchesCategory && matchesLocation && haystack.includes(query.toLowerCase());
   }));
+
+  const selectedInventoryItems = $derived(
+    data.inventory.filter((item) => selectedInventoryIds.includes(item.id))
+  );
+
+  const filteredSelectedCount = $derived(
+    filteredInventory.filter((item) => selectedInventoryIds.includes(item.id)).length
+  );
+
+  const allFilteredSelected = $derived(
+    filteredInventory.length > 0 && filteredSelectedCount === filteredInventory.length
+  );
 
   const relatedTransactions = $derived.by(() => {
     if (!selectedSale) return [];
@@ -488,6 +543,121 @@
   const initials = (title: string) =>
     title.split(/\s+/).filter(Boolean).slice(0, 2).map((word) => word[0]).join('').toUpperCase();
 
+  function inventorySelected(id: string) {
+    return selectedInventoryIds.includes(id);
+  }
+
+  function toggleInventorySelection(id: string) {
+    selectedInventoryIds = inventorySelected(id)
+      ? selectedInventoryIds.filter((value) => value !== id)
+      : [...selectedInventoryIds, id];
+  }
+
+  function toggleFilteredInventorySelection() {
+    const filteredIds = new Set(filteredInventory.map((item) => item.id));
+
+    if (allFilteredSelected) {
+      selectedInventoryIds = selectedInventoryIds.filter((id) => !filteredIds.has(id));
+      return;
+    }
+
+    selectedInventoryIds = [...new Set([
+      ...selectedInventoryIds,
+      ...filteredInventory.map((item) => item.id)
+    ])];
+  }
+
+  function clearInventorySelection() {
+    selectedInventoryIds = [];
+  }
+
+  function openBulkInventoryEditor() {
+    if (!selectedInventoryIds.length) return;
+
+    bulkApplyLocation = false;
+    bulkLocation = '';
+    bulkApplySource = false;
+    bulkSource = '';
+    bulkApplyCategory = false;
+    bulkCategory = selectedInventoryItems[0]?.category ?? 'other';
+    bulkApplyCondition = false;
+    bulkCondition = '';
+    bulkApplyDate = false;
+    bulkDate = '';
+    bulkApplyCost = false;
+    bulkCost = '';
+    bulkMessage = null;
+    bulkOpen = true;
+  }
+
+  async function saveBulkInventory(event: SubmitEvent) {
+    event.preventDefault();
+    if (!selectedInventoryIds.length) return;
+
+    if (data.isDemo) {
+      bulkMessage = 'Demo inventory is not saved.';
+      return;
+    }
+
+    const body: Record<string, unknown> = {
+      ids: selectedInventoryIds
+    };
+
+    if (bulkApplyLocation) body.storageLocation = bulkLocation.trim() || null;
+    if (bulkApplySource) body.source = bulkSource.trim() || null;
+    if (bulkApplyCategory) body.category = bulkCategory;
+    if (bulkApplyCondition) body.conditionName = bulkCondition.trim() || null;
+    if (bulkApplyDate) body.purchasedAt = bulkDate || null;
+
+    if (bulkApplyCost) {
+      if (bulkCost.trim() === '') {
+        body.purchaseCostCents = null;
+      } else {
+        const parsed = Number(bulkCost);
+        if (!Number.isFinite(parsed) || parsed < 0) {
+          bulkMessage = 'Enter a valid purchase cost, or leave it blank to clear COGS.';
+          return;
+        }
+        body.purchaseCostCents = Math.round(parsed * 100);
+      }
+    }
+
+    if (Object.keys(body).length === 1) {
+      bulkMessage = 'Choose at least one field to apply.';
+      return;
+    }
+
+    bulkSaving = true;
+    bulkMessage = null;
+
+    const response = await fetch('/api/inventory/batch', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    bulkSaving = false;
+
+    const result = await response.json().catch(() => null) as {
+      error?: string;
+      updated?: number;
+    } | null;
+
+    if (!response.ok) {
+      bulkMessage = result?.error ?? 'Could not update the selected inventory.';
+      return;
+    }
+
+    const updated = result?.updated ?? selectedInventoryIds.length;
+    if (bulkApplyLocation && inventoryLocationFilter !== 'all') {
+      inventoryLocationFilter = 'all';
+    }
+    bulkOpen = false;
+    selectedInventoryIds = [];
+    await invalidateAll();
+    bulkMessage = `${updated} item${updated === 1 ? '' : 's'} updated.`;
+  }
+
   function openEditor(item: InventoryRow) {
     editing = item;
     editTitle = item.title;
@@ -510,6 +680,7 @@
     intakePrefix = inventoryCategoryPrefix(startingCategory);
     intakeQuantity = '1';
     intakeCost = '';
+    intakeCostMode = 'each';
     intakeSource = '';
     intakeLocation = '';
     intakeCondition = '';
@@ -649,6 +820,7 @@
         quantity: parsedQuantity,
         category: intakeCategory,
         purchaseCostCents: Math.round(parsedCost * 100),
+        costMode: intakeCostMode,
         source: intakeSource.trim() || null,
         storageLocation: intakeLocation.trim() || null,
         purchasedAt: intakeDate || null,
@@ -688,6 +860,7 @@
     // Keep the lot-level details for rapid intake; clear the item-specific ones.
     intakeTitle = '';
     intakeCost = '';
+    intakeCostMode = 'each';
     intakeCondition = '';
     intakeQuantity = '1';
     intakeSku = '';
@@ -1173,7 +1346,7 @@
             <button onclick={() => view = 'inventory'}>Open inventory <ChevronRight size={16} /></button>
           </div>
           {#if activeItems.length}
-            {@render inventoryTable(activeItems.slice(0, 5))}
+            {@render inventoryTable(activeItems.slice(0, 5), false)}
           {:else}
             <div class="empty-state">
               <strong>No active listings yet.</strong>
@@ -1191,6 +1364,7 @@
           <div><span>Active listings</span><strong>{activeItems.length}</strong><small>{money(activeValue)} listed</small></div>
           <div><span>Inventory cost basis</span><strong>{money(inventoryCostBasis)}</strong><small>unsold purchase cost</small></div>
           <div class="inventory-summary-actions">
+            <a class="button secondary" href="/purchase-lots"><ShoppingBag size={17} /> Purchase lots</a>
             <a class="button secondary" href="/listing-prep"><ClipboardCheck size={17} /> Listing prep</a>
             <button class="button secondary" onclick={() => skuManagerOpen = true}><Archive size={17} /> SKU manager</button>
             <button class="button primary" onclick={openIntake}><Tag size={17} /> Add inventory</button>
@@ -1199,7 +1373,7 @@
 
         <section class="panel inventory-panel">
           <div class="inventory-tools">
-            <label class="search-field"><Search size={18} /><span class="sr-only">Search inventory</span><input bind:value={query} placeholder="Search title, SKU, category, or marketplace ID" /></label>
+            <label class="search-field"><Search size={18} /><span class="sr-only">Search inventory</span><input bind:value={query} placeholder="Search title, SKU, bin, source, condition…" /></label>
             <label class="inventory-category-filter">
               <span class="sr-only">Filter by category</span>
               <select bind:value={inventoryCategoryFilter}>
@@ -1209,14 +1383,45 @@
                 {/each}
               </select>
             </label>
+            <label class="inventory-location-filter">
+              <span class="sr-only">Filter by storage location</span>
+              <select bind:value={inventoryLocationFilter}>
+                <option value="all">All locations</option>
+                <option value="__unset__">Location not set</option>
+                {#each inventoryLocations as inventoryLocation}
+                  <option value={inventoryLocation}>{inventoryLocation}</option>
+                {/each}
+              </select>
+            </label>
             <div class="filter-tabs" role="group" aria-label="Filter inventory">
               {#each ['all', 'active', 'scheduled', 'unlisted', 'sold'] as value}
                 <button class:active={filter === value} onclick={() => filter = value as Filter}>{value}</button>
               {/each}
             </div>
           </div>
+
+          <div class:active={selectedInventoryIds.length > 0} class="inventory-selection-bar">
+            <div>
+              <strong>{selectedInventoryIds.length ? `${selectedInventoryIds.length} items selected` : 'Bulk inventory tools'}</strong>
+              <small>
+                {selectedInventoryIds.length
+                  ? `${selectedInventoryItems.filter((item) => item.status !== 'sold').length} unsold · ${selectedInventoryItems.filter((item) => item.status === 'sold').length} sold`
+                  : 'Select rows to move bins or update shared purchase details.'}
+              </small>
+            </div>
+            <span class="selection-spacer"></span>
+            {#if selectedInventoryIds.length}
+              <button class="button mini primary" type="button" onclick={openBulkInventoryEditor}><Boxes size={14} /> Bulk edit</button>
+              <button class="button mini secondary" type="button" onclick={clearInventorySelection}>Clear selection</button>
+            {:else}
+              <button class="button mini secondary" type="button" onclick={toggleFilteredInventorySelection}>
+                {`Select filtered (${filteredInventory.length})`}
+              </button>
+            {/if}
+          </div>
+
         {#if filteredInventory.length}
-          {@render inventoryTable(filteredInventory)}
+          {@render inventoryTable(filteredInventory, true)}
         {:else}
           <div class="empty-state"><strong>No inventory matches this view.</strong>Add inventory or use Listing Prep to manually track eBay listings while API access is pending.</div>
         {/if}
@@ -1646,10 +1851,33 @@
   </main>
 </div>
 
-{#snippet inventoryTable(items: InventoryRow[])}
-  <div class="table-wrap"><table><thead><tr><th>Item</th><th>Status</th><th>Location</th><th class="num">Purchase cost</th><th class="num">List price</th><th class="num">Age</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>
+{#snippet inventoryTable(items: InventoryRow[], selectable: boolean)}
+  <div class="table-wrap"><table class:selectable-table={selectable}><thead><tr>
+    {#if selectable}
+      <th class="select-col">
+        <input
+          class="inventory-check"
+          type="checkbox"
+          aria-label="Select all filtered inventory"
+          checked={allFilteredSelected}
+          onchange={toggleFilteredInventorySelection}
+        />
+      </th>
+    {/if}
+    <th>Item</th><th>Status</th><th>Location</th><th class="num">Purchase cost</th><th class="num">List price</th><th class="num">Age</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>
     {#each items as item}
-      <tr>
+      <tr class:selected-row={selectable && inventorySelected(item.id)}>
+        {#if selectable}
+          <td class="select-col">
+            <input
+              class="inventory-check"
+              type="checkbox"
+              aria-label={`Select ${item.title}`}
+              checked={inventorySelected(item.id)}
+              onchange={() => toggleInventorySelection(item.id)}
+            />
+          </td>
+        {/if}
         <td><div class="item-title">
           {#if item.imageUrl}<img class="item-avatar" src={item.imageUrl} alt="" />{:else}<span class="item-avatar item-fallback">{initials(item.title)}</span>{/if}
           <span>
@@ -1669,6 +1897,96 @@
     {/each}
   </tbody></table></div>
 {/snippet}
+
+{#if bulkOpen}
+  <div class="modal-backdrop" role="presentation">
+    <button class="modal-dismiss" aria-label="Close bulk inventory editor" onclick={() => bulkOpen = false}></button>
+    <div class="bulk-inventory-dialog" role="dialog" aria-modal="true" aria-labelledby="bulk-inventory-title">
+      <button class="dialog-close" aria-label="Close" onclick={() => bulkOpen = false}><X size={18} /></button>
+      <span class="kicker">BULK INVENTORY</span>
+      <h2 id="bulk-inventory-title">Update {selectedInventoryIds.length} item{selectedInventoryIds.length === 1 ? '' : 's'}</h2>
+      <p class="bulk-intro">
+        Only the fields you check below will change. SKU, listing status, and sale identity are locked out of bulk edits.
+      </p>
+
+      <form class="bulk-inventory-form" onsubmit={saveBulkInventory}>
+        <div class:enabled={bulkApplyLocation} class="bulk-field">
+          <label class="bulk-field-head">
+            <input type="checkbox" bind:checked={bulkApplyLocation} />
+            <strong>Storage location</strong>
+          </label>
+          <input bind:value={bulkLocation} maxlength="80" disabled={!bulkApplyLocation} placeholder="Bin A-14 · blank clears location" />
+        </div>
+
+        <div class:enabled={bulkApplySource} class="bulk-field">
+          <label class="bulk-field-head">
+            <input type="checkbox" bind:checked={bulkApplySource} />
+            <strong>Source</strong>
+          </label>
+          <input bind:value={bulkSource} maxlength="120" disabled={!bulkApplySource} placeholder="Card show, Goodwill, collection…" />
+        </div>
+
+        <div class:enabled={bulkApplyCategory} class="bulk-field">
+          <label class="bulk-field-head">
+            <input type="checkbox" bind:checked={bulkApplyCategory} />
+            <strong>Category</strong>
+          </label>
+          <select bind:value={bulkCategory} disabled={!bulkApplyCategory}>
+            {#each inventoryCategories as category}
+              <option value={category.value}>{category.label}</option>
+            {/each}
+          </select>
+        </div>
+
+        <div class:enabled={bulkApplyCondition} class="bulk-field">
+          <label class="bulk-field-head">
+            <input type="checkbox" bind:checked={bulkApplyCondition} />
+            <strong>Condition</strong>
+          </label>
+          <input bind:value={bulkCondition} maxlength="80" disabled={!bulkApplyCondition} placeholder="Used, Near Mint… · blank clears" />
+        </div>
+
+        <div class:enabled={bulkApplyDate} class="bulk-field">
+          <label class="bulk-field-head">
+            <input type="checkbox" bind:checked={bulkApplyDate} />
+            <strong>Purchase date</strong>
+          </label>
+          <input type="date" bind:value={bulkDate} disabled={!bulkApplyDate} />
+        </div>
+
+        <div class:enabled={bulkApplyCost} class="bulk-field">
+          <label class="bulk-field-head">
+            <input type="checkbox" bind:checked={bulkApplyCost} />
+            <strong>Purchase cost <small>same value per item</small></strong>
+          </label>
+          <div class="money-input">
+            <span>$</span>
+            <input bind:value={bulkCost} inputmode="decimal" disabled={!bulkApplyCost} placeholder="Blank clears COGS" />
+          </div>
+        </div>
+
+        <div class="bulk-safety wide-field">
+          <ShieldCheck size={17} />
+          <span>
+            <strong>Safe fields only.</strong>
+            This tool never bulk-edits SKU, eBay Item ID, listing status, or Sold status.
+          </span>
+        </div>
+
+        {#if bulkMessage}<p class="form-message wide-field">{bulkMessage}</p>{/if}
+
+        <div class="dialog-actions wide-field">
+          <button class="button secondary" type="button" onclick={() => bulkOpen = false}>Cancel</button>
+          <span class="dialog-spacer"></span>
+          <button class="button primary" disabled={bulkSaving}>
+            {#if bulkSaving}<LoaderCircle class="spin" size={16} />{:else}<Check size={16} />{/if}
+            Apply to {selectedInventoryIds.length}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+{/if}
 
 {#if skuManagerOpen}
   <div class="modal-backdrop" role="presentation">
@@ -1725,9 +2043,22 @@
         </label>
 
         <label>
-          <span>Purchase cost <small>each</small></span>
+          <span>Purchase cost <small>{intakeCostMode === 'each' ? 'each' : 'lot total'}</small></span>
           <div class="money-input"><span>$</span><input bind:value={intakeCost} inputmode="decimal" placeholder="0.00" required /></div>
         </label>
+
+        {#if Number(intakeQuantity) > 1}
+          <div class="cost-mode-card wide-field">
+            <div class="cost-mode-copy">
+              <strong>How should this cost be applied?</strong>
+              <small>{intakeCostSummary}</small>
+            </div>
+            <div class="cost-mode-toggle" role="group" aria-label="Choose batch cost mode">
+              <button type="button" class:active={intakeCostMode === 'each'} onclick={() => intakeCostMode = 'each'}>Per item</button>
+              <button type="button" class:active={intakeCostMode === 'total'} onclick={() => intakeCostMode = 'total'}>Total lot cost</button>
+            </div>
+          </div>
+        {/if}
 
         <label>
           <span>Purchase date</span>
@@ -1790,7 +2121,10 @@
             <Boxes size={17} />
             <span>
               <strong>Batch intake</strong>
-              Sellquity will create {intakeQuantity} separate inventory records at {money(Math.round((Number(intakeCost) || 0) * 100))} each so every future sale gets its own COGS trail.
+              Sellquity will create {intakeQuantity} separate inventory records with individual SKUs.
+              {intakeCostMode === 'total'
+                ? ` The exact ${money(Math.round((Number(intakeCost) || 0) * 100))} lot cost will be distributed across them without losing a cent.`
+                : ` Each item will carry ${money(Math.round((Number(intakeCost) || 0) * 100))} of COGS.`}
             </span>
           </div>
         {/if}

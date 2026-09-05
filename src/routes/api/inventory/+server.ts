@@ -23,6 +23,7 @@ type InventoryInput = {
   quantity?: unknown;
   category?: unknown;
   purchaseCostCents?: unknown;
+  costMode?: unknown;
   source?: unknown;
   storageLocation?: unknown;
   purchasedAt?: unknown;
@@ -46,6 +47,19 @@ function normalizedPrefix(value: unknown) {
   return prefix && /^[A-Z0-9]{2,8}$/.test(prefix) ? prefix : null;
 }
 
+function itemCosts(totalOrEachCents: number, quantity: number, mode: 'each' | 'total') {
+  if (mode === 'each' || quantity === 1) {
+    return Array.from({ length: quantity }, () => totalOrEachCents);
+  }
+
+  const base = Math.floor(totalOrEachCents / quantity);
+  const remainder = totalOrEachCents % quantity;
+
+  return Array.from(
+    { length: quantity },
+    (_, index) => base + (index < remainder ? 1 : 0)
+  );
+}
 
 export const POST: RequestHandler = async ({ platform, request, locals }) => {
   if (!platform) {
@@ -66,6 +80,7 @@ export const POST: RequestHandler = async ({ platform, request, locals }) => {
   const quantity = Number(body.quantity ?? 1);
   const category = clean(body.category, 40) as InventoryCategory | null;
   const autoSku = body.autoSku !== false;
+  const costMode: 'each' | 'total' = body.costMode === 'total' ? 'total' : 'each';
 
   if (!title) return json({ error: 'Enter an item title.' }, { status: 400 });
   if (!Number.isInteger(purchaseCostCents) || purchaseCostCents < 0) {
@@ -92,37 +107,45 @@ export const POST: RequestHandler = async ({ platform, request, locals }) => {
     skus = await allocateSkuRange(platform.env.DB, workspaceId, prefix, quantity);
   } else {
     if (quantity !== 1) {
-      return json({ error: 'Batch intake requires automatic SKUs so every item stays individually trackable.' }, { status: 400 });
+      return json({
+        error: 'Batch intake requires automatic SKUs so every item stays individually trackable.'
+      }, { status: 400 });
     }
 
     const sku = clean(body.sku, 100);
     if (!sku) {
-      return json({ error: 'Enter a SKU/custom label or turn automatic SKU generation on.' }, { status: 400 });
+      return json({
+        error: 'Enter a SKU/custom label or turn automatic SKU generation on.'
+      }, { status: 400 });
     }
     skus = [sku];
   }
 
-  // Auto-generated values should be free already, but this also protects custom
-  // values and catches any collision before the batch is written.
   for (const sku of skus) {
     const duplicate = await platform.env.DB.prepare(`
       SELECT sku FROM (
         SELECT sku FROM inventory_items
-        WHERE workspace_id = ? AND sku IS NOT NULL AND LOWER(TRIM(sku)) = LOWER(TRIM(?))
+        WHERE workspace_id = ?
+          AND sku IS NOT NULL
+          AND LOWER(TRIM(sku)) = LOWER(TRIM(?))
         UNION ALL
         SELECT sku FROM sku_reservations
-        WHERE workspace_id = ? AND LOWER(TRIM(sku)) = LOWER(TRIM(?))
+        WHERE workspace_id = ?
+          AND LOWER(TRIM(sku)) = LOWER(TRIM(?))
       )
       LIMIT 1
     `).bind(workspaceId, sku, workspaceId, sku).first<{ sku: string }>();
 
     if (duplicate) {
-      return json({ error: `SKU ${sku} is already used or reserved. Nettiva will not recycle it.` }, { status: 409 });
+      return json({
+        error: `SKU ${sku} is already used or reserved. Sellquity will not recycle it.`
+      }, { status: 409 });
     }
   }
 
   if (!autoSku) await observeSku(platform.env.DB, workspaceId, skus[0]);
 
+  const costsCents = itemCosts(purchaseCostCents, quantity, costMode);
   const now = new Date().toISOString();
   const batchId = quantity > 1 ? `batch:${crypto.randomUUID()}` : null;
   const ids = skus.map(() => `manual:${crypto.randomUUID()}`);
@@ -142,7 +165,7 @@ export const POST: RequestHandler = async ({ platform, request, locals }) => {
     conditionName,
     category,
     batchId,
-    purchaseCostCents,
+    costsCents[index],
     source,
     storageLocation,
     purchasedAt,
@@ -157,6 +180,9 @@ export const POST: RequestHandler = async ({ platform, request, locals }) => {
     ids,
     skus,
     count: ids.length,
-    batchId
+    batchId,
+    costsCents,
+    costMode,
+    purchaseCostTotalCents: costsCents.reduce((sum, value) => sum + value, 0)
   });
 };
