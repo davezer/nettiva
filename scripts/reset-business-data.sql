@@ -8,7 +8,7 @@
 --
 -- DELETED:
 --   inventory, listings, orders, transactions, imports, marketplace ledgers,
---   purchase lots, SKU state, custom categories, Whatnot connection metadata.
+--   purchase lots, SKU state, category preferences/custom categories, Whatnot connection metadata.
 
 PRAGMA foreign_keys = OFF;
 
@@ -26,6 +26,7 @@ DELETE FROM inventory_items;
 DELETE FROM import_batches;
 DELETE FROM sync_jobs;
 DELETE FROM custom_inventory_categories;
+DELETE FROM inventory_category_preferences;
 
 -- Keep a real/pending eBay connection if one exists, but remove parked/test
 -- marketplace providers from the clean personal-eBay workspace.

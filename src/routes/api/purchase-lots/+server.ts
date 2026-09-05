@@ -112,8 +112,8 @@ export const POST: RequestHandler = async ({ platform, request, locals }) => {
       if (!category) throw new Error(`Item ${index + 1} needs a valid category.`);
 
       const categoryDefinition = await getInventoryCategoryDefinition(db, workspaceId, category);
-      if (!categoryDefinition) {
-        throw new Error(`Item ${index + 1} needs a valid category.`);
+      if (!categoryDefinition || categoryDefinition.enabled === false) {
+        throw new Error(`Item ${index + 1} needs an enabled category.`);
       }
 
       const skuPrefix = prefix(item.skuPrefix, categoryDefinition.prefix);

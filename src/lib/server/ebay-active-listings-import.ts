@@ -1,6 +1,7 @@
 import type { InventoryCategory } from '$lib/types';
 import { categoryFromSku, observeSku, parseSku } from '$lib/server/sku-control';
 import { workspaceEntityId } from '$lib/server/workspace';
+import { loadBuiltInInventoryCategories } from '$lib/server/inventory-categories';
 
 type CsvRecord = Record<string, string>;
 
@@ -282,16 +283,25 @@ export async function importEbayActiveListingsCsv(
     }
   }
 
-  const customCategoryResult = await db.prepare(`
-    SELECT
-      id,
-      sku_prefix AS prefix
-    FROM custom_inventory_categories
-    WHERE workspace_id = ?
-  `).bind(workspaceId).all<{ id: string; prefix: string }>();
+  const [customCategoryResult, builtInCategories] = await Promise.all([
+    db.prepare(`
+      SELECT
+        id,
+        sku_prefix AS prefix
+      FROM custom_inventory_categories
+      WHERE workspace_id = ?
+    `).bind(workspaceId).all<{ id: string; prefix: string }>(),
+    loadBuiltInInventoryCategories(db, workspaceId)
+  ]);
 
   const customCategoryByPrefix = new Map(
     customCategoryResult.results.map((row) => [row.prefix.toUpperCase(), row.id] as const)
+  );
+
+  const builtInCategoryByPrefix = new Map(
+    builtInCategories
+      .filter((category) => category.enabled !== false)
+      .map((category) => [category.prefix.toUpperCase(), category.value] as const)
   );
 
   const statements: D1PreparedStatement[] = [];
@@ -359,8 +369,15 @@ export async function importEbayActiveListingsCsv(
       const customCategory = parsedSku
         ? customCategoryByPrefix.get(parsedSku.prefix)
         : null;
+      const builtInCategory = parsedSku
+        ? builtInCategoryByPrefix.get(parsedSku.prefix)
+        : null;
 
-      category = (customCategory ?? categoryFromSku(row.sku)) as InventoryCategory;
+      category = (
+        customCategory ??
+        builtInCategory ??
+        categoryFromSku(row.sku)
+      ) as InventoryCategory;
 
       if (category === 'other') {
         otherCategoryCount += 1;

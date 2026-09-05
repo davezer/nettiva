@@ -138,9 +138,13 @@
   ];
 
   const inventoryCategories = $derived([
-    ...BUILT_IN_INVENTORY_CATEGORIES,
+    ...(data.builtInInventoryCategories ?? BUILT_IN_INVENTORY_CATEGORIES),
     ...(data.customInventoryCategories ?? [])
   ]);
+
+  const enabledInventoryCategories = $derived(
+    inventoryCategories.filter((category) => category.enabled !== false)
+  );
 
   const navItems = [
     { view: 'dashboard' as const, label: 'Overview', icon: LayoutDashboard },
@@ -551,7 +555,7 @@
   const skuReservationsSafe = $derived(data.skuReservations ?? []);
 
   const skuPrefixSummary = $derived.by(() =>
-    inventoryCategories.map((category) => ({
+    enabledInventoryCategories.map((category) => ({
       ...category,
       nextSku: formatInventorySku(category.prefix, clientSkuSequence(category.prefix)),
       lastNumber: clientSkuSequence(category.prefix) - 1
@@ -999,7 +1003,15 @@
     intakeTitle = '';
     intakeSku = '';
     intakeAutoSku = true;
-    const startingCategory = inventoryCategoryFilter === 'all' ? 'action_figures' : inventoryCategoryFilter;
+    const filteredCategory =
+      inventoryCategoryFilter === 'all'
+        ? null
+        : enabledInventoryCategories.find((category) => category.value === inventoryCategoryFilter)?.value ?? null;
+    const startingCategory =
+      filteredCategory ??
+      enabledInventoryCategories.find((category) => category.value === 'action_figures')?.value ??
+      enabledInventoryCategories[0]?.value ??
+      'other';
     intakeCategory = startingCategory;
     intakePrefix = inventoryCategoryPrefix(startingCategory);
     intakeQuantity = '1';
@@ -1764,7 +1776,7 @@
               <span class="sr-only">Filter by category</span>
               <select bind:value={inventoryCategoryFilter}>
                 <option value="all">All categories</option>
-                {#each inventoryCategories as category}
+                {#each enabledInventoryCategories as category}
                   <option value={category.value}>{category.label}</option>
                 {/each}
               </select>
@@ -2562,7 +2574,7 @@
             <strong>Category</strong>
           </label>
           <select bind:value={bulkCategory} disabled={!bulkApplyCategory}>
-            {#each inventoryCategories as category}
+            {#each enabledInventoryCategories as category}
               <option value={category.value}>{category.label}</option>
             {/each}
           </select>
@@ -2661,7 +2673,7 @@
             value={intakeCategory}
             onchange={(event) => selectIntakeCategory(event.currentTarget.value as InventoryCategory)}
           >
-            {#each inventoryCategories as category}
+            {#each enabledInventoryCategories as category}
               <option value={category.value}>{category.label}</option>
             {/each}
           </select>
@@ -2802,7 +2814,7 @@
         <label>
           <span>Category</span>
           <select bind:value={editCategory}>
-            {#each inventoryCategories as category}
+            {#each enabledInventoryCategories as category}
               <option value={category.value}>{category.label}</option>
             {/each}
           </select>

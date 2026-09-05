@@ -1,9 +1,11 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import {
-  BUILT_IN_INVENTORY_CATEGORIES
+  BUILT_IN_INVENTORY_CATEGORIES,
+  builtInInventoryCategory
 } from '$lib/inventory-categories';
 import {
+  loadBuiltInInventoryCategories,
   loadCustomInventoryCategories
 } from '$lib/server/inventory-categories';
 import { currentWorkspaceId } from '$lib/server/workspace';
@@ -12,6 +14,7 @@ type CategoryInput = {
   label?: unknown;
   prefix?: unknown;
   id?: unknown;
+  enabled?: unknown;
 };
 
 function clean(value: unknown, max: number) {
@@ -25,17 +28,156 @@ function normalizedPrefix(value: unknown) {
   return prefix && /^[A-Z0-9]{2,8}$/.test(prefix) ? prefix : null;
 }
 
+async function effectivePrefixConflict(
+  db: D1Database,
+  workspaceId: string,
+  prefix: string,
+  excludeBuiltInId?: string
+) {
+  const [builtIns, customCategories] = await Promise.all([
+    loadBuiltInInventoryCategories(db, workspaceId),
+    loadCustomInventoryCategories(db, workspaceId)
+  ]);
+
+  const builtInConflict = builtIns.find(
+    (category) =>
+      category.value !== excludeBuiltInId &&
+      category.prefix.toUpperCase() === prefix.toUpperCase()
+  );
+
+  if (builtInConflict) {
+    return `${prefix} is already the default for ${builtInConflict.label}.`;
+  }
+
+  const customConflict = customCategories.find(
+    (category) => category.prefix.toUpperCase() === prefix.toUpperCase()
+  );
+
+  if (customConflict) {
+    return `${prefix} is already the default for ${customConflict.label}.`;
+  }
+
+  return null;
+}
+
 export const GET: RequestHandler = async ({ platform, locals }) => {
   if (!platform) {
     return json({ error: 'Cloudflare runtime is unavailable.' }, { status: 503 });
   }
 
   const workspaceId = currentWorkspaceId(locals);
-  const customCategories = await loadCustomInventoryCategories(platform.env.DB, workspaceId);
+  const [builtInCategories, customCategories] = await Promise.all([
+    loadBuiltInInventoryCategories(platform.env.DB, workspaceId),
+    loadCustomInventoryCategories(platform.env.DB, workspaceId)
+  ]);
 
   return json({
-    builtInCategories: BUILT_IN_INVENTORY_CATEGORIES,
+    builtInCategories,
     customCategories
+  });
+};
+
+export const PATCH: RequestHandler = async ({ platform, request, locals }) => {
+  if (!platform) {
+    return json({ error: 'Cloudflare runtime is unavailable.' }, { status: 503 });
+  }
+
+  const db = platform.env.DB;
+  const workspaceId = currentWorkspaceId(locals);
+  const body = await request.json().catch(() => null) as CategoryInput | null;
+  const id = clean(body?.id, 40);
+
+  if (!id) {
+    return json({ error: 'Choose a built-in category.' }, { status: 400 });
+  }
+
+  const base = builtInInventoryCategory(id);
+  if (!base) {
+    return json({ error: 'Only Sellquity built-ins use this settings endpoint.' }, { status: 400 });
+  }
+
+  const currentCategories = await loadBuiltInInventoryCategories(db, workspaceId);
+  const current = currentCategories.find((category) => category.value === id) ?? {
+    ...base,
+    enabled: true
+  };
+
+  const prefix = body?.prefix === undefined
+    ? current.prefix
+    : normalizedPrefix(body.prefix);
+
+  if (!prefix) {
+    return json({
+      error: 'Default SKU prefix must be 2–8 letters or numbers.'
+    }, { status: 400 });
+  }
+
+  const enabled = id === 'other'
+    ? true
+    : typeof body?.enabled === 'boolean'
+      ? body.enabled
+      : current.enabled !== false;
+
+  if (id === 'other' && body?.enabled === false) {
+    return json({
+      error: 'Other stays enabled as Sellquity’s safe fallback for unrecognized inventory.'
+    }, { status: 409 });
+  }
+
+  const prefixConflict = await effectivePrefixConflict(db, workspaceId, prefix, id);
+  if (prefixConflict) {
+    return json({ error: prefixConflict }, { status: 409 });
+  }
+
+  if (!enabled && current.enabled !== false) {
+    const usage = await db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM inventory_items
+      WHERE workspace_id = ?
+        AND inventory_category = ?
+    `).bind(workspaceId, id).first<{ count: number }>();
+
+    const count = Number(usage?.count ?? 0);
+
+    if (count > 0) {
+      return json({
+        error:
+          `${count} inventory item${count === 1 ? ' is' : 's are'} still assigned to ${base.label}. ` +
+          'Move them to another category before disabling this built-in.'
+      }, { status: 409 });
+    }
+  }
+
+  const now = new Date().toISOString();
+
+  await db.prepare(`
+    INSERT INTO inventory_category_preferences (
+      workspace_id,
+      category_key,
+      enabled,
+      sku_prefix,
+      updated_at
+    )
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(workspace_id, category_key) DO UPDATE SET
+      enabled = excluded.enabled,
+      sku_prefix = excluded.sku_prefix,
+      updated_at = excluded.updated_at
+  `).bind(
+    workspaceId,
+    id,
+    enabled ? 1 : 0,
+    prefix,
+    now
+  ).run();
+
+  return json({
+    ok: true,
+    category: {
+      ...base,
+      prefix,
+      enabled
+    }
   });
 };
 
@@ -44,6 +186,7 @@ export const POST: RequestHandler = async ({ platform, request, locals }) => {
     return json({ error: 'Cloudflare runtime is unavailable.' }, { status: 503 });
   }
 
+  const db = platform.env.DB;
   const workspaceId = currentWorkspaceId(locals);
   const body = await request.json().catch(() => null) as CategoryInput | null;
   const label = clean(body?.label, 60);
@@ -60,38 +203,34 @@ export const POST: RequestHandler = async ({ platform, request, locals }) => {
   const labelConflict = BUILT_IN_INVENTORY_CATEGORIES.some(
     (category) => category.label.toLowerCase() === label.toLowerCase()
   );
-  const prefixConflict = BUILT_IN_INVENTORY_CATEGORIES.some(
-    (category) => category.prefix.toLowerCase() === prefix.toLowerCase()
-  );
 
   if (labelConflict) {
     return json({ error: 'That category already exists as a Sellquity built-in.' }, { status: 409 });
   }
 
+  const prefixConflict = await effectivePrefixConflict(db, workspaceId, prefix);
   if (prefixConflict) {
-    return json({
-      error: `Prefix ${prefix} is already the default for a built-in category. Choose another default.`
-    }, { status: 409 });
+    return json({ error: prefixConflict }, { status: 409 });
   }
 
-  const existing = await platform.env.DB.prepare(`
+  const existing = await db.prepare(`
     SELECT id
     FROM custom_inventory_categories
     WHERE workspace_id = ?
-      AND (LOWER(label) = LOWER(?) OR LOWER(sku_prefix) = LOWER(?))
+      AND LOWER(label) = LOWER(?)
     LIMIT 1
-  `).bind(workspaceId, label, prefix).first<{ id: string }>();
+  `).bind(workspaceId, label).first<{ id: string }>();
 
   if (existing) {
     return json({
-      error: 'A custom category with that name or default SKU prefix already exists.'
+      error: 'A custom category with that name already exists.'
     }, { status: 409 });
   }
 
   const id = `custom_${crypto.randomUUID().replaceAll('-', '')}`;
   const now = new Date().toISOString();
 
-  await platform.env.DB.prepare(`
+  await db.prepare(`
     INSERT INTO custom_inventory_categories (
       workspace_id,
       id,
@@ -116,7 +255,8 @@ export const POST: RequestHandler = async ({ platform, request, locals }) => {
       value: id,
       label,
       prefix,
-      custom: true
+      custom: true,
+      enabled: true
     }
   }, { status: 201 });
 };
@@ -126,6 +266,7 @@ export const DELETE: RequestHandler = async ({ platform, request, locals }) => {
     return json({ error: 'Cloudflare runtime is unavailable.' }, { status: 503 });
   }
 
+  const db = platform.env.DB;
   const workspaceId = currentWorkspaceId(locals);
   const body = await request.json().catch(() => null) as CategoryInput | null;
   const id = clean(body?.id, 40);
@@ -134,7 +275,7 @@ export const DELETE: RequestHandler = async ({ platform, request, locals }) => {
     return json({ error: 'Choose a custom category to remove.' }, { status: 400 });
   }
 
-  const category = await platform.env.DB.prepare(`
+  const category = await db.prepare(`
     SELECT id, label, sku_prefix AS prefix
     FROM custom_inventory_categories
     WHERE workspace_id = ?
@@ -146,7 +287,7 @@ export const DELETE: RequestHandler = async ({ platform, request, locals }) => {
     return json({ error: 'That custom category no longer exists.' }, { status: 404 });
   }
 
-  const usage = await platform.env.DB.prepare(`
+  const usage = await db.prepare(`
     SELECT COUNT(*) AS count
     FROM inventory_items
     WHERE workspace_id = ?
@@ -154,6 +295,7 @@ export const DELETE: RequestHandler = async ({ platform, request, locals }) => {
   `).bind(workspaceId, id).first<{ count: number }>();
 
   const count = Number(usage?.count ?? 0);
+
   if (count > 0) {
     return json({
       error:
@@ -162,7 +304,7 @@ export const DELETE: RequestHandler = async ({ platform, request, locals }) => {
     }, { status: 409 });
   }
 
-  await platform.env.DB.prepare(`
+  await db.prepare(`
     DELETE FROM custom_inventory_categories
     WHERE workspace_id = ?
       AND id = ?

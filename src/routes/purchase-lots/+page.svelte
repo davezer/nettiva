@@ -31,7 +31,8 @@
   let { data }: { data: PageData } = $props();
 
   const categories = $derived([
-    ...BUILT_IN_INVENTORY_CATEGORIES,
+    ...(data.builtInInventoryCategories ?? BUILT_IN_INVENTORY_CATEGORIES)
+      .filter((category) => category.enabled !== false),
     ...(data.customInventoryCategories ?? [])
   ]);
 

@@ -32,6 +32,8 @@ export type InventoryCategoryDefinition = {
   label: string;
   prefix: string;
   custom?: boolean;
+  /** False means hidden from NEW inventory assignment, not deleted from history. */
+  enabled?: boolean;
 };
 
 export type InventoryRow = {
@@ -163,6 +165,8 @@ export type DashboardData = {
   transactions: AccountingTransactionRow[];
   skuReservations: SkuReservationRow[];
   skuSequences: SkuSequenceRow[];
-  /** Workspace-created inventory categories. Built-ins live in shared code. */
+  /** Effective workspace built-ins after enabled/prefix preferences are applied. */
+  builtInInventoryCategories?: InventoryCategoryDefinition[];
+  /** Workspace-created inventory categories. */
   customInventoryCategories?: InventoryCategoryDefinition[];
 };

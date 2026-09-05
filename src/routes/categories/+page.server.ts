@@ -1,6 +1,10 @@
 import type { PageServerLoad } from './$types';
 import { currentWorkspaceId } from '$lib/server/workspace';
-import { loadCustomInventoryCategories } from '$lib/server/inventory-categories';
+import {
+  loadBuiltInInventoryCategories,
+  loadCustomInventoryCategories
+} from '$lib/server/inventory-categories';
+import { BUILT_IN_INVENTORY_CATEGORIES } from '$lib/inventory-categories';
 
 type UsageRow = {
   category: string;
@@ -9,8 +13,13 @@ type UsageRow = {
 
 export const load: PageServerLoad = async ({ platform, locals }) => {
   const db = platform?.env.DB;
+
   if (!db) {
     return {
+      builtInCategories: BUILT_IN_INVENTORY_CATEGORIES.map((category) => ({
+        ...category,
+        enabled: true
+      })),
       customCategories: [],
       usageByCategory: {} as Record<string, number>
     };
@@ -18,7 +27,8 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
 
   const workspaceId = currentWorkspaceId(locals);
 
-  const [customCategories, usageResult] = await Promise.all([
+  const [builtInCategories, customCategories, usageResult] = await Promise.all([
+    loadBuiltInInventoryCategories(db, workspaceId),
     loadCustomInventoryCategories(db, workspaceId),
     db.prepare(`
       SELECT
@@ -31,6 +41,7 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
   ]);
 
   return {
+    builtInCategories,
     customCategories,
     usageByCategory: Object.fromEntries(
       usageResult.results.map((row) => [row.category, Number(row.count ?? 0)])
