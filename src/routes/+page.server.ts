@@ -7,6 +7,7 @@ import type {
   AccountingTransactionRow,
   DashboardData,
   InventoryRow,
+  PurchaseLotRow,
   SaleRow,
   SkuReservationRow,
   SkuSequenceRow
@@ -94,12 +95,20 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
     // A real workspace can be empty. Demo data is only used when no D1 runtime exists
     // or a load genuinely fails. This is important for future new-customer onboarding.
 
-    const [inventoryResult, salesResult, transactionResult, reservationResult, sequenceResult] = await db.batch([
+    const [
+      inventoryResult,
+      salesResult,
+      transactionResult,
+      reservationResult,
+      sequenceResult,
+      purchaseLotResult
+    ] = await db.batch([
       db.prepare(`
         SELECT i.id, i.title, i.sku, i.ebay_item_id AS ebayItemId,
           i.image_url AS imageUrl, i.condition_name AS conditionName,
           i.purchased_at AS purchasedAt, i.inventory_category AS category,
           i.purchase_cost_cents AS costCents,
+          i.purchase_lot_id AS purchaseLotId,
           i.source, i.storage_location AS location, i.status,
           l.price_cents AS listPriceCents, l.listed_at AS listedAt
         FROM inventory_items i
@@ -198,6 +207,26 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
         FROM sku_sequences
         WHERE workspace_id = ?
         ORDER BY prefix
+      `).bind(workspaceId),
+      db.prepare(`
+        SELECT
+          id,
+          label,
+          source,
+          purchased_at AS purchasedAt,
+          purchase_price_cents AS purchasePriceCents,
+          tax_fees_cents AS taxFeesCents,
+          inbound_shipping_cents AS inboundShippingCents,
+          total_cost_cents AS totalCostCents,
+          default_location AS defaultLocation,
+          notes,
+          allocation_mode AS allocationMode,
+          item_count AS itemCount,
+          created_at AS createdAt
+        FROM purchase_lots
+        WHERE workspace_id = ?
+        ORDER BY COALESCE(purchased_at, created_at) DESC, created_at DESC
+        LIMIT 500
       `).bind(workspaceId)
     ]);
 
@@ -257,6 +286,15 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
       ...row, lastNumber: Number(row.lastNumber)
     }));
 
+    const purchaseLots = (purchaseLotResult.results as unknown as PurchaseLotRow[]).map((row) => ({
+      ...row,
+      purchasePriceCents: Number(row.purchasePriceCents ?? 0),
+      taxFeesCents: Number(row.taxFeesCents ?? 0),
+      inboundShippingCents: Number(row.inboundShippingCents ?? 0),
+      totalCostCents: Number(row.totalCostCents ?? 0),
+      itemCount: Number(row.itemCount ?? 0)
+    }));
+
     const [builtInInventoryCategories, customInventoryCategories] = await Promise.all([
       loadBuiltInInventoryCategories(db, workspaceId),
       loadCustomInventoryCategories(db, workspaceId)
@@ -278,6 +316,7 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
       inventory,
       sales,
       transactions,
+      purchaseLots,
       skuReservations,
       skuSequences,
       builtInInventoryCategories,

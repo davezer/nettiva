@@ -1353,3 +1353,235 @@ tbody tr:hover .item-avatar.item-fallback {
   }
 }
 
+/* =========================================================
+   Sellquity Purchase Accounting v1
+   ========================================================= */
+
+.purchase-accounting-panel {
+  overflow: hidden;
+}
+
+.purchase-accounting-heading {
+  align-items: center;
+}
+
+.business-wide-pill {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #31506a;
+  border-radius: 999px;
+  padding: 5px 8px;
+  color: #91adc1;
+  background: #0a1824;
+  font: 800 .59rem "SFMono-Regular", Consolas, monospace;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.purchase-accounting-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-bottom: 1px solid #173047;
+  background: #081521;
+}
+
+.purchase-accounting-stats > span {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 14px 16px;
+  border-right: 1px solid #173047;
+}
+
+.purchase-accounting-stats > span:last-child {
+  border-right: 0;
+}
+
+.purchase-accounting-stats small {
+  color: #68859a;
+  font-size: .6rem;
+}
+
+.purchase-accounting-stats strong {
+  color: #f1f8ff;
+  font-size: 1rem;
+}
+
+.purchase-accounting-stats em {
+  color: #668399;
+  font-style: normal;
+  font-size: .58rem;
+  line-height: 1.35;
+}
+
+.inventory-accounting-flow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  margin: 14px;
+  border: 1px solid #174052;
+  border-radius: 10px;
+  padding: 12px;
+  background:
+    radial-gradient(circle at 0 0, #0069e30d, transparent 14rem),
+    #071722;
+}
+
+.inventory-accounting-flow > svg {
+  color: #315a73;
+}
+
+.inventory-accounting-flow > span {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: center;
+}
+
+.inventory-accounting-flow b {
+  grid-row: 1 / 4;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #176b81;
+  border-radius: 8px;
+  color: #64e8d6;
+  background: #092532;
+  font-size: .63rem;
+}
+
+.inventory-accounting-flow small {
+  color: #01d4a5;
+  font: 800 .55rem "SFMono-Regular", Consolas, monospace;
+  letter-spacing: .08em;
+}
+
+.inventory-accounting-flow strong {
+  font-size: .69rem;
+}
+
+.inventory-accounting-flow em {
+  color: #668399;
+  font-style: normal;
+  font-size: .57rem;
+  line-height: 1.35;
+}
+
+.purchase-lot-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid #173047;
+  padding: 14px 16px 10px;
+}
+
+.purchase-lot-heading h3 {
+  margin: 4px 0 0;
+  font-size: .84rem;
+}
+
+.purchase-lot-table {
+  min-width: 900px;
+}
+
+.purchase-lot-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.purchase-lot-name strong {
+  color: #edf7ff;
+  font-size: .72rem;
+}
+
+.purchase-lot-name small {
+  color: #668399;
+  font-size: .57rem;
+}
+
+.purchase-lot-table td.recovered {
+  color: #01d4a5;
+  font-weight: 850;
+}
+
+.purchase-lot-more {
+  border-top: 1px solid #173047;
+  padding: 9px 14px;
+  color: #627f94;
+  font-size: .59rem;
+}
+
+.purchase-empty {
+  gap: 8px;
+}
+
+.purchase-empty .button {
+  margin-top: 3px;
+}
+
+.purchase-accounting-note {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  border-top: 1px solid #173047;
+  padding: 11px 14px;
+  color: #668399;
+  background: #07131e;
+  font-size: .6rem;
+  line-height: 1.45;
+}
+
+.purchase-accounting-note svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: #5fcfda;
+}
+
+@media (max-width: 1000px) {
+  .purchase-accounting-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .purchase-accounting-stats > span:nth-child(2) {
+    border-right: 0;
+  }
+
+  .purchase-accounting-stats > span:nth-child(-n + 2) {
+    border-bottom: 1px solid #173047;
+  }
+
+  .inventory-accounting-flow {
+    grid-template-columns: 1fr;
+  }
+
+  .inventory-accounting-flow > svg {
+    display: none;
+  }
+}
+
+@media (max-width: 620px) {
+  .purchase-accounting-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .purchase-accounting-stats > span {
+    border-right: 0;
+    border-bottom: 1px solid #173047;
+  }
+
+  .purchase-accounting-stats > span:last-child {
+    border-bottom: 0;
+  }
+
+  .purchase-lot-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+

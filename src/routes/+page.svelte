@@ -635,6 +635,90 @@
     new Map(data.inventory.map((item) => [item.id, item] as const))
   );
 
+  const purchaseLotsSafe = $derived(data.purchaseLots ?? []);
+
+  const filteredPurchaseLots = $derived(
+    purchaseLotsSafe.filter((lot) => inDateRange(lot.purchasedAt ?? lot.createdAt))
+  );
+
+  const businessPeriodSales = $derived(
+    data.sales.filter((sale) => inDateRange(sale.soldAt))
+  );
+
+  const purchaseLotAccounting = $derived.by(() =>
+    purchaseLotsSafe
+      .map((lot) => {
+        const items = data.inventory.filter((item) => item.purchaseLotId === lot.id);
+        const itemIds = new Set(items.map((item) => item.id));
+        const sales = data.sales.filter((sale) =>
+          Boolean(sale.inventoryItemId && itemIds.has(sale.inventoryItemId))
+        );
+        const sold = items.filter((item) => item.status === 'sold').length;
+        const gross = sales.reduce(
+          (sum, sale) => sum + sale.salePriceCents + sale.shippingChargedCents,
+          0
+        );
+        const realizedProfit = sales.reduce((sum, sale) => sum + sale.netProfitCents, 0);
+        const soldCogs = sales.reduce((sum, sale) => sum + (sale.cogsCents ?? 0), 0);
+        const missingCogs = sales.filter((sale) => sale.cogsCents == null).length;
+        const unsoldCogs = items
+          .filter((item) => item.status !== 'sold')
+          .reduce((sum, item) => sum + (item.costCents ?? 0), 0);
+
+        return {
+          ...lot,
+          trackedItems: items.length,
+          sold,
+          gross,
+          realizedProfit,
+          soldCogs,
+          missingCogs,
+          unsoldCogs,
+          recovery: lot.totalCostCents > 0 ? (gross / lot.totalCostCents) * 100 : null
+        };
+      })
+      .sort((a, b) =>
+        Date.parse(b.purchasedAt ?? b.createdAt) - Date.parse(a.purchasedAt ?? a.createdAt)
+      )
+  );
+
+  const purchaseAccountingSummary = $derived.by(() => {
+    const purchaseCash = filteredPurchaseLots.reduce(
+      (sum, lot) => sum + lot.totalCostCents,
+      0
+    );
+    const recognizedCogs = businessPeriodSales.reduce(
+      (sum, sale) => sum + (sale.cogsCents ?? 0),
+      0
+    );
+    const missingCogs = businessPeriodSales.filter((sale) => sale.cogsCents == null).length;
+    const standaloneUnsoldBasis = unsoldItems
+      .filter((item) => !item.purchaseLotId)
+      .reduce((sum, item) => sum + (item.costCents ?? 0), 0);
+    const recordedLotCost = purchaseLotAccounting.reduce(
+      (sum, lot) => sum + lot.totalCostCents,
+      0
+    );
+    const recordedLotGross = purchaseLotAccounting.reduce(
+      (sum, lot) => sum + lot.gross,
+      0
+    );
+
+    return {
+      purchaseCash,
+      purchaseLotsInPeriod: filteredPurchaseLots.length,
+      recognizedCogs,
+      missingCogs,
+      unsoldBasis: inventoryCostBasis,
+      standaloneUnsoldBasis,
+      recordedLotCost,
+      recordedLotGross,
+      lotRecovery: recordedLotCost > 0
+        ? (recordedLotGross / recordedLotCost) * 100
+        : null
+    };
+  });
+
   const saleAnalytics = $derived.by(() =>
     filteredSales.map((sale) => {
       const inventory = sale.inventoryItemId
@@ -1967,6 +2051,128 @@
               <div class="cogs-complete"><Check size={18} /> Every sale in this period has a purchase cost.</div>
             {/if}
           </article>
+        </section>
+
+        <section class="panel purchase-accounting-panel">
+          <div class="panel-heading table-heading purchase-accounting-heading">
+            <div>
+              <span class="kicker">INVENTORY CAPITAL</span>
+              <h2>Purchase cash vs. recognized COGS</h2>
+            </div>
+            <span class="business-wide-pill">Business-wide</span>
+          </div>
+
+          <div class="purchase-accounting-stats">
+            <span>
+              <small>Recorded purchase cash · period</small>
+              <strong>{money(purchaseAccountingSummary.purchaseCash)}</strong>
+              <em>{purchaseAccountingSummary.purchaseLotsInPeriod} purchase lot{purchaseAccountingSummary.purchaseLotsInPeriod === 1 ? '' : 's'}</em>
+            </span>
+            <span>
+              <small>COGS recognized · period</small>
+              <strong>{money(purchaseAccountingSummary.recognizedCogs)}</strong>
+              <em>{purchaseAccountingSummary.missingCogs ? `${purchaseAccountingSummary.missingCogs} sale cost${purchaseAccountingSummary.missingCogs === 1 ? '' : 's'} still missing` : 'Known sold-item cost'}</em>
+            </span>
+            <span>
+              <small>Current unsold cost basis</small>
+              <strong>{money(purchaseAccountingSummary.unsoldBasis)}</strong>
+              <em>{purchaseAccountingSummary.standaloneUnsoldBasis ? `${money(purchaseAccountingSummary.standaloneUnsoldBasis)} entered outside Purchase Lots` : 'Inventory capital still on hand'}</em>
+            </span>
+            <span>
+              <small>Purchase-lot gross recovery</small>
+              <strong>{purchaseAccountingSummary.lotRecovery == null ? '—' : percent(purchaseAccountingSummary.lotRecovery)}</strong>
+              <em>{purchaseAccountingSummary.recordedLotCost ? `${money(purchaseAccountingSummary.recordedLotGross)} gross on ${money(purchaseAccountingSummary.recordedLotCost)} recorded cost` : 'Starts when Purchase Lots have sales'}</em>
+            </span>
+          </div>
+
+          <div class="inventory-accounting-flow" aria-label="Inventory accounting flow">
+            <span>
+              <b>1</b>
+              <small>CASH OUT</small>
+              <strong>Buy inventory</strong>
+              <em>Recorded as inventory capital, not an immediate P&amp;L expense.</em>
+            </span>
+            <ChevronRight size={17} />
+            <span>
+              <b>2</b>
+              <small>ON HAND</small>
+              <strong>Inventory cost basis</strong>
+              <em>The cost stays attached to the item while it remains unsold.</em>
+            </span>
+            <ChevronRight size={17} />
+            <span>
+              <b>3</b>
+              <small>SALE</small>
+              <strong>COGS recognized</strong>
+              <em>That item's cost enters P&amp;L when the tracked inventory sells.</em>
+            </span>
+          </div>
+
+          <div class="purchase-lot-heading">
+            <div>
+              <span class="kicker">PURCHASE LOT PERFORMANCE</span>
+              <h3>What each buy has returned so far</h3>
+            </div>
+            <a class="button mini secondary" href="/purchase-lots">Purchase Lots <ChevronRight size={14} /></a>
+          </div>
+
+          {#if purchaseLotAccounting.length}
+            <div class="table-wrap">
+              <table class="purchase-lot-table">
+                <thead>
+                  <tr>
+                    <th>Purchase lot</th>
+                    <th class="num">Paid</th>
+                    <th class="num">Items</th>
+                    <th class="num">Sold</th>
+                    <th class="num">Gross</th>
+                    <th class="num">Realized profit</th>
+                    <th class="num">Unsold COGS</th>
+                    <th class="num">Recovery</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {#each purchaseLotAccounting.slice(0, 12) as lot}
+                    <tr>
+                      <td>
+                        <span class="purchase-lot-name">
+                          <strong>{lot.label}</strong>
+                          <small>
+                            {lot.source ?? 'Source not set'} · {shortDate(lot.purchasedAt ?? lot.createdAt)}
+                            {#if lot.missingCogs} · {lot.missingCogs} sale COGS missing{/if}
+                          </small>
+                        </span>
+                      </td>
+                      <td class="num">{money(lot.totalCostCents)}</td>
+                      <td class="num">{lot.trackedItems || lot.itemCount}</td>
+                      <td class="num">{lot.sold}</td>
+                      <td class="num">{money(lot.gross)}</td>
+                      <td class:negative={lot.realizedProfit < 0} class="num profit">{money(lot.realizedProfit)}</td>
+                      <td class="num">{money(lot.unsoldCogs)}</td>
+                      <td class:recovered={lot.recovery != null && lot.recovery >= 100} class="num">{lot.recovery == null ? '—' : percent(lot.recovery)}</td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
+
+            {#if purchaseLotAccounting.length > 12}
+              <div class="purchase-lot-more">Showing the 12 most recent of {purchaseLotAccounting.length} recorded purchase lots.</div>
+            {/if}
+          {:else}
+            <div class="empty-state purchase-empty">
+              <strong>No Purchase Lots recorded yet.</strong>
+              Your current inventory cost basis still works normally. Future mixed buys entered through Purchase Lots will create a cash-spend trail without double-counting that spend as COGS.
+              <a class="button mini secondary" href="/purchase-lots">Record a purchase lot <ChevronRight size={14} /></a>
+            </div>
+          {/if}
+
+          <div class="purchase-accounting-note">
+            <Info size={15} />
+            <span>
+              This block is business-wide because inventory can move between selling channels. It follows the date range for purchase cash and recognized COGS, while unsold cost basis and lot recovery are current/lifetime values. Purchase Lots do not create operating-expense rows in the P&amp;L.
+            </span>
+          </div>
         </section>
 
         <section class="panel expense-manager">

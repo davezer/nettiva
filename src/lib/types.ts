@@ -52,6 +52,24 @@ export type InventoryRow = {
   listPriceCents: number | null;
   listedAt: string | null;
   ageDays: number;
+  /** Purchase Lot identity when this item was created through Intake Sessions. */
+  purchaseLotId?: string | null;
+};
+
+export type PurchaseLotRow = {
+  id: string;
+  label: string;
+  source: string | null;
+  purchasedAt: string | null;
+  purchasePriceCents: number;
+  taxFeesCents: number;
+  inboundShippingCents: number;
+  totalCostCents: number;
+  defaultLocation: string | null;
+  notes: string | null;
+  allocationMode: 'equal' | 'manual' | string;
+  itemCount: number;
+  createdAt: string;
 };
 
 export type SkuReservationRow = {
@@ -163,6 +181,8 @@ export type DashboardData = {
   inventory: InventoryRow[];
   sales: SaleRow[];
   transactions: AccountingTransactionRow[];
+  /** Recorded inventory purchases. Purchase cash is not automatically treated as P&L. */
+  purchaseLots?: PurchaseLotRow[];
   skuReservations: SkuReservationRow[];
   skuSequences: SkuSequenceRow[];
   /** Effective workspace built-ins after enabled/prefix preferences are applied. */
