@@ -19,12 +19,15 @@
   } from '$lib/types';
   import { money, shortDate } from '$lib/money';
   import { authClient } from '$lib/auth-client';
+  import { BUILT_IN_INVENTORY_CATEGORIES } from '$lib/inventory-categories';
 
   let { data }: { data: DashboardData } = $props();
 
   type View = 'dashboard' | 'inventory' | 'sales' | 'accounting' | 'reports' | 'settings';
   type Filter = 'all' | InventoryRow['status'];
   type InventoryCategoryFilter = 'all' | InventoryCategory;
+  type InventoryAgeBucket = 'all' | '0-30' | '31-60' | '61-90' | '90+';
+  type InventorySort = 'default' | 'oldest' | 'highest-cost' | 'highest-ask' | 'unlisted-oldest';
   type DatePreset = 'all' | '30d' | 'this-month' | 'last-month' | 'ytd' | 'custom';
   type ChannelFilter = 'all' | MarketplaceProvider;
 
@@ -38,6 +41,8 @@
   let filter = $state<Filter>('all');
   let inventoryCategoryFilter = $state<InventoryCategoryFilter>('all');
   let inventoryLocationFilter = $state('all');
+  let inventoryAgeBucket = $state<InventoryAgeBucket>('all');
+  let inventorySort = $state<InventorySort>('default');
   let selectedInventoryIds = $state<string[]>([]);
   let bulkOpen = $state(false);
   let bulkSaving = $state(false);
@@ -100,7 +105,7 @@
   let expenseMessage = $state<string | null>(null);
   let deletingExpenseId = $state<string | null>(null);
   let datePreset = $state<DatePreset>('all');
-  let channelFilter = $state<ChannelFilter>('all');
+  let channelFilter = $state<ChannelFilter>('ebay');
   let customStart = $state('');
   let customEnd = $state('');
   let workspaceName = $state('');
@@ -132,16 +137,10 @@
     { value: 'other', label: 'Other' }
   ];
 
-  const inventoryCategories: { value: InventoryCategory; label: string; prefix: string }[] = [
-    { value: 'action_figures', label: 'Action Figures', prefix: 'AFG' },
-    { value: 'baseball_cards', label: 'Baseball Cards', prefix: 'BSC' },
-    { value: 'electronics', label: 'Electronics', prefix: 'ELC' },
-    { value: 'movies', label: 'Movies / Blu-ray', prefix: 'MOV' },
-    { value: 'video_games', label: 'Video Games', prefix: 'VGM' },
-    { value: 'trading_cards', label: 'Trading Cards', prefix: 'TCG' },
-    { value: 'collectibles', label: 'Collectibles', prefix: 'COL' },
-    { value: 'other', label: 'Other', prefix: 'OTH' }
-  ];
+  const inventoryCategories = $derived([
+    ...BUILT_IN_INVENTORY_CATEGORIES,
+    ...(data.customInventoryCategories ?? [])
+  ]);
 
   const navItems = [
     { view: 'dashboard' as const, label: 'Overview', icon: LayoutDashboard },
@@ -153,7 +152,7 @@
   ];
 
   function inventoryCategoryLabel(category: InventoryCategory) {
-    return inventoryCategories.find((option) => option.value === category)?.label ?? 'Other';
+    return inventoryCategories.find((option) => option.value === category)?.label ?? 'Unknown category';
   }
 
   function inventoryCategoryPrefix(category: InventoryCategory) {
@@ -328,6 +327,62 @@
     };
   });
 
+  const dashboardSales = $derived.by(() =>
+    data.sales.filter((sale) => inDateRange(sale.soldAt) && saleProvider(sale) === 'ebay')
+  );
+
+  const dashboardTransactions = $derived.by(() =>
+    data.transactions.filter((transaction) =>
+      inDateRange(transaction.transactionDate) && transactionProvider(transaction) === 'ebay'
+    )
+  );
+
+  const dashboardMetrics = $derived.by(() => {
+    const gross = dashboardSales.reduce(
+      (sum, sale) => sum + sale.salePriceCents + sale.shippingChargedCents,
+      0
+    );
+    const cogs = dashboardSales.reduce((sum, sale) => sum + (sale.cogsCents ?? 0), 0);
+    const missingCogs = dashboardSales.filter((sale) => sale.cogsCents == null).length;
+    const pnlAdjustments = dashboardTransactions.reduce(
+      (sum, transaction) => sum + (
+        PNL_CATEGORIES.has(transaction.category) ? transaction.amountCents : 0
+      ),
+      0
+    );
+    const profit = gross + pnlAdjustments - cogs;
+    return {
+      gross,
+      cogs,
+      missingCogs,
+      pnlAdjustments,
+      profit,
+      margin: gross ? (profit / gross) * 100 : 0
+    };
+  });
+
+  const dashboardProfitIsFinal = $derived(
+    data.financialsComplete && dashboardMetrics.missingCogs === 0
+  );
+
+  const latestEbayDataAt = $derived.by(() => {
+    let latest: string | null = null;
+    let latestTimestamp = -Infinity;
+    for (const transaction of data.transactions) {
+      if (transactionProvider(transaction) !== 'ebay' || transaction.source !== 'ebay_csv') continue;
+      const timestamp = Date.parse(transaction.transactionDate);
+      if (Number.isFinite(timestamp) && timestamp > latestTimestamp) {
+        latestTimestamp = timestamp;
+        latest = transaction.transactionDate;
+      }
+    }
+    return latest;
+  });
+
+  const headerMissingCogs = $derived(
+    view === 'dashboard' ? dashboardMetrics.missingCogs : metrics.missingCogs
+  );
+
   const activeItems = $derived(data.inventory.filter((item) => item.status === 'active'));
   const scheduledItems = $derived(data.inventory.filter((item) => item.status === 'scheduled'));
   const avgAge = $derived(activeItems.length
@@ -341,6 +396,120 @@
     .reduce((sum, item) => sum + (item.costCents ?? 0), 0)
   );
   const activeValue = $derived(activeItems.reduce((sum, item) => sum + (item.listPriceCents ?? 0), 0));
+  const unsoldItems = $derived(data.inventory.filter((item) => item.status !== 'sold'));
+  const unlistedItems = $derived(data.inventory.filter((item) => item.status === 'unlisted'));
+  const unlistedInvestment = $derived(
+    unlistedItems.reduce((sum, item) => sum + (item.costCents ?? 0), 0)
+  );
+  function daysSince(value?: string | null) {
+    if (!value) return null;
+    const timestamp = Date.parse(value);
+    if (!Number.isFinite(timestamp)) return null;
+    return Math.max(0, Math.floor((Date.now() - timestamp) / 86_400_000));
+  }
+
+  function matchesActiveAgeBucket(item: InventoryRow) {
+    if (inventoryAgeBucket === 'all') return true;
+    if (item.status !== 'active' && item.status !== 'scheduled') return false;
+
+    if (inventoryAgeBucket === '0-30') return item.ageDays <= 30;
+    if (inventoryAgeBucket === '31-60') return item.ageDays >= 31 && item.ageDays <= 60;
+    if (inventoryAgeBucket === '61-90') return item.ageDays >= 61 && item.ageDays <= 90;
+    return item.ageDays >= 91;
+  }
+
+  function setInventoryAgeBucket(bucket: InventoryAgeBucket) {
+    inventoryAgeBucket = bucket;
+    if (bucket !== 'all') filter = 'active';
+  }
+
+  const activeAgeBuckets = $derived.by(() => {
+    const bucket = (min: number, max: number | null) => {
+      const items = activeItems.filter((item) =>
+        item.ageDays >= min && (max == null || item.ageDays <= max)
+      );
+      return {
+        count: items.length,
+        cogs: items.reduce((sum, item) => sum + (item.costCents ?? 0), 0),
+        asking: items.reduce((sum, item) => sum + (item.listPriceCents ?? 0), 0)
+      };
+    };
+
+    return {
+      fresh: bucket(0, 30),
+      warming: bucket(31, 60),
+      aging: bucket(61, 90),
+      stale: bucket(91, null)
+    };
+  });
+
+  const unlistedOver30 = $derived.by(() =>
+    unlistedItems.filter((item) => {
+      const age = daysSince(item.purchasedAt);
+      return age != null && age >= 30;
+    })
+  );
+
+  const unlistedOver30Cogs = $derived(
+    unlistedOver30.reduce((sum, item) => sum + (item.costCents ?? 0), 0)
+  );
+
+  const activeOver60 = $derived(activeItems.filter((item) => item.ageDays >= 61));
+  const activeOver60Cogs = $derived(
+    activeOver60.reduce((sum, item) => sum + (item.costCents ?? 0), 0)
+  );
+
+  const staleCogs = $derived(
+    activeItems
+      .filter((item) => item.ageDays >= 91)
+      .reduce((sum, item) => sum + (item.costCents ?? 0), 0)
+  );
+
+  const inventoryHealthByCategory = $derived.by(() =>
+    inventoryCategories
+      .map((category) => {
+        const tracked = data.inventory.filter((item) => item.category === category.value);
+        const soldItems = tracked.filter((item) => item.status === 'sold');
+        const unsold = tracked.filter((item) => item.status !== 'sold');
+        const active = tracked.filter((item) => item.status === 'active');
+        const unlisted = tracked.filter((item) => item.status === 'unlisted');
+        const staleItems = active.filter((item) => item.ageDays >= 91);
+        const unsoldCogs = unsold.reduce((sum, item) => sum + (item.costCents ?? 0), 0);
+        const activeAsking = active.reduce((sum, item) => sum + (item.listPriceCents ?? 0), 0);
+        const averageActiveAge = active.length
+          ? Math.round(active.reduce((sum, item) => sum + item.ageDays, 0) / active.length)
+          : null;
+
+        return {
+          ...category,
+          tracked: tracked.length,
+          sold: soldItems.length,
+          unsold: unsold.length,
+          active: active.length,
+          unlisted: unlisted.length,
+          stale: staleItems.length,
+          unsoldCogs,
+          activeAsking,
+          averageActiveAge,
+          sellThrough: tracked.length ? (soldItems.length / tracked.length) * 100 : 0
+        };
+      })
+      .filter((row) => row.tracked > 0)
+      .sort((a, b) => b.unsoldCogs - a.unsoldCogs || b.tracked - a.tracked)
+  );
+
+  const inventoryHealthSummary = $derived.by(() => {
+    const tracked = data.inventory.length;
+    const sold = data.inventory.filter((item) => item.status === 'sold').length;
+    return {
+      tracked,
+      sold,
+      sellThrough: tracked ? (sold / tracked) * 100 : 0,
+      activeOver60: activeOver60.length,
+      unlistedOver30: unlistedOver30.length
+    };
+  });
+
   const missingSaleCosts = $derived(filteredSales.filter((sale) => sale.cogsCents == null));
   const manualExpenses = $derived(
     filteredTransactions.filter((transaction) =>
@@ -398,15 +567,40 @@
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
   );
 
-  const filteredInventory = $derived(data.inventory.filter((item) => {
-    const matchesStatus = filter === 'all' || item.status === filter;
-    const matchesCategory = inventoryCategoryFilter === 'all' || item.category === inventoryCategoryFilter;
-    const matchesLocation =
-      inventoryLocationFilter === 'all' ||
-      (inventoryLocationFilter === '__unset__' ? !item.location : item.location === inventoryLocationFilter);
-    const haystack = `${item.title} ${item.sku ?? ''} ${item.ebayItemId ?? ''} ${inventoryCategoryLabel(item.category)} ${item.location ?? ''} ${item.source ?? ''} ${item.conditionName ?? ''}`.toLowerCase();
-    return matchesStatus && matchesCategory && matchesLocation && haystack.includes(query.toLowerCase());
-  }));
+  const filteredInventory = $derived.by(() => {
+    const rows = data.inventory.filter((item) => {
+      const matchesStatus = filter === 'all' || item.status === filter;
+      const matchesCategory = inventoryCategoryFilter === 'all' || item.category === inventoryCategoryFilter;
+      const matchesLocation =
+        inventoryLocationFilter === 'all' ||
+        (inventoryLocationFilter === '__unset__' ? !item.location : item.location === inventoryLocationFilter);
+      const matchesAge = matchesActiveAgeBucket(item);
+      const haystack = `${item.title} ${item.sku ?? ''} ${item.ebayItemId ?? ''} ${inventoryCategoryLabel(item.category)} ${item.location ?? ''} ${item.source ?? ''} ${item.conditionName ?? ''}`.toLowerCase();
+      return matchesStatus && matchesCategory && matchesLocation && matchesAge && haystack.includes(query.toLowerCase());
+    });
+
+    if (inventorySort === 'oldest') {
+      return [...rows].sort((a, b) => b.ageDays - a.ageDays);
+    }
+
+    if (inventorySort === 'highest-cost') {
+      return [...rows].sort((a, b) => (b.costCents ?? 0) - (a.costCents ?? 0));
+    }
+
+    if (inventorySort === 'highest-ask') {
+      return [...rows].sort((a, b) => (b.listPriceCents ?? 0) - (a.listPriceCents ?? 0));
+    }
+
+    if (inventorySort === 'unlisted-oldest') {
+      return [...rows].sort((a, b) => {
+        const aAge = a.status === 'unlisted' ? (daysSince(a.purchasedAt) ?? -1) : -1;
+        const bAge = b.status === 'unlisted' ? (daysSince(b.purchasedAt) ?? -1) : -1;
+        return bAge - aAge;
+      });
+    }
+
+    return rows;
+  });
 
   const selectedInventoryItems = $derived(
     data.inventory.filter((item) => selectedInventoryIds.includes(item.id))
@@ -432,6 +626,136 @@
       )
     );
   });
+
+  const inventoryById = $derived.by(() =>
+    new Map(data.inventory.map((item) => [item.id, item] as const))
+  );
+
+  const saleAnalytics = $derived.by(() =>
+    filteredSales.map((sale) => {
+      const inventory = sale.inventoryItemId
+        ? inventoryById.get(sale.inventoryItemId) ?? null
+        : null;
+      const gross = sale.salePriceCents + sale.shippingChargedCents;
+
+      return {
+        sale,
+        inventory,
+        gross,
+        profit: sale.netProfitCents,
+        margin: gross ? (sale.netProfitCents / gross) * 100 : 0,
+        category: inventory ? inventoryCategoryLabel(inventory.category) : 'Uncategorized',
+        source: inventory?.source?.trim() || 'Source not set'
+      };
+    })
+  );
+
+  const costedSaleAnalytics = $derived(
+    saleAnalytics.filter((row) => row.sale.cogsCents != null)
+  );
+
+  const analyticsSummary = $derived.by(() => {
+    const costedProfit = costedSaleAnalytics.reduce((sum, row) => sum + row.profit, 0);
+    const costedCogs = costedSaleAnalytics.reduce(
+      (sum, row) => sum + (row.sale.cogsCents ?? 0),
+      0
+    );
+
+    return {
+      averageSaleProfit: costedSaleAnalytics.length
+        ? costedProfit / costedSaleAnalytics.length
+        : 0,
+      overallRoi: costedCogs > 0
+        ? (costedProfit / costedCogs) * 100
+        : null,
+      costedSales: costedSaleAnalytics.length,
+      missingCogs: saleAnalytics.length - costedSaleAnalytics.length
+    };
+  });
+
+  type AnalyticsGroupRow = {
+    key: string;
+    sales: number;
+    gross: number;
+    profit: number;
+    cogs: number;
+    missingCogs: number;
+    margin: number;
+    roi: number | null;
+    averageProfit: number;
+  };
+
+  function analyticsGroups(field: 'category' | 'source'): AnalyticsGroupRow[] {
+    const groups = new Map<string, AnalyticsGroupRow>();
+
+    for (const row of saleAnalytics) {
+      const key = row[field];
+      let group = groups.get(key);
+
+      if (!group) {
+        group = {
+          key,
+          sales: 0,
+          gross: 0,
+          profit: 0,
+          cogs: 0,
+          missingCogs: 0,
+          margin: 0,
+          roi: null,
+          averageProfit: 0
+        };
+        groups.set(key, group);
+      }
+
+      group.sales += 1;
+      group.gross += row.gross;
+      group.profit += row.profit;
+
+      if (row.sale.cogsCents == null) {
+        group.missingCogs += 1;
+      } else {
+        group.cogs += row.sale.cogsCents;
+      }
+    }
+
+    for (const group of groups.values()) {
+      group.margin = group.gross ? (group.profit / group.gross) * 100 : 0;
+      group.averageProfit = group.sales ? group.profit / group.sales : 0;
+      group.roi = group.missingCogs === 0 && group.cogs > 0
+        ? (group.profit / group.cogs) * 100
+        : null;
+    }
+
+    return [...groups.values()].sort((a, b) => b.profit - a.profit);
+  }
+
+  const categoryAnalytics = $derived.by(() => analyticsGroups('category'));
+  const sourceAnalytics = $derived.by(() => analyticsGroups('source'));
+
+  const highestProfitSale = $derived.by(() =>
+    costedSaleAnalytics.length
+      ? [...costedSaleAnalytics].sort((a, b) => b.profit - a.profit)[0]
+      : null
+  );
+
+  const highestRoiSale = $derived.by(() => {
+    const rows = costedSaleAnalytics.filter((row) => row.sale.roi != null);
+    return rows.length
+      ? [...rows].sort((a, b) => (b.sale.roi ?? -Infinity) - (a.sale.roi ?? -Infinity))[0]
+      : null;
+  });
+
+  const lowestProfitSale = $derived.by(() =>
+    costedSaleAnalytics.length
+      ? [...costedSaleAnalytics].sort((a, b) => a.profit - b.profit)[0]
+      : null
+  );
+
+  const lowestMarginSale = $derived.by(() =>
+    costedSaleAnalytics.length
+      ? [...costedSaleAnalytics].sort((a, b) => a.margin - b.margin)[0]
+      : null
+  );
 
   const monthlyRows = $derived.by(() => {
     const months = new Map<string, {
@@ -1207,7 +1531,7 @@
   <main class="main-panel">
     <header class="topbar">
       <div>
-        <span class="eyebrow">{view === 'settings' ? 'SETUP' : view === 'accounting' ? 'MONEY DESK' : view === 'reports' ? 'REPORTING DESK' : 'SELLER COMMAND CENTER'}</span>
+        <span class="eyebrow">{view === 'dashboard' ? 'EBAY OPERATIONS' : view === 'settings' ? 'SETUP' : view === 'accounting' ? 'MONEY DESK' : view === 'reports' ? 'REPORTING DESK' : 'SELLER COMMAND CENTER'}</span>
         <h1>{navItems.find((item) => item.view === view)?.label}</h1>
       </div>
       <div class="top-actions">
@@ -1216,8 +1540,8 @@
           <span class="demo-badge">Demo data</span>
         {:else if !data.financialsComplete}
           <span class="demo-badge">Fees pending</span>
-        {:else if metrics.missingCogs > 0 && ['dashboard', 'sales', 'accounting', 'reports'].includes(view)}
-          <span class="demo-badge">{metrics.missingCogs} COGS missing</span>
+        {:else if headerMissingCogs > 0 && ['dashboard', 'sales', 'accounting', 'reports'].includes(view)}
+          <span class="demo-badge">{headerMissingCogs} COGS missing</span>
         {/if}
         <a class="button secondary" href="/import"><FileSpreadsheet size={17} /> Import eBay CSV</a>
         {#if data.connected}
@@ -1255,103 +1579,110 @@
           </div>
         {/if}
 
-        <span class="toolbar-divider" aria-hidden="true"></span>
-
-        <span><ShoppingBag size={15} /> Channel</span>
-        <div class="channel-presets" role="group" aria-label="Filter reporting channel">
-          <button class:active={channelFilter === 'all'} onclick={() => channelFilter = 'all'}>All channels</button>
-          <button class:active={channelFilter === 'ebay'} onclick={() => channelFilter = 'ebay'}>eBay</button>
-          <button class:active={channelFilter === 'whatnot'} onclick={() => channelFilter = 'whatnot'}>Whatnot</button>
-        </div>
-
-        {#if channelFilter !== 'all'}
-          <span class="channel-scope-note">Business-wide manual expenses excluded from channel-only profit.</span>
+        {#if view !== 'dashboard'}
+          <span class="toolbar-divider" aria-hidden="true"></span>
+          <span><ShoppingBag size={15} /> Channel</span>
+          <div class="channel-presets" role="group" aria-label="Filter reporting channel">
+            <button class:active={channelFilter === 'all'} onclick={() => channelFilter = 'all'}>All channels</button>
+            <button class:active={channelFilter === 'ebay'} onclick={() => channelFilter = 'ebay'}>eBay</button>
+            <button class:active={channelFilter === 'whatnot'} onclick={() => channelFilter = 'whatnot'}>Whatnot</button>
+          </div>
+          {#if channelFilter !== 'all'}
+            <span class="channel-scope-note">Business-wide manual expenses excluded from channel-only profit.</span>
+          {/if}
         {/if}
       </div>
     {/if}
 
     {#if view === 'dashboard'}
-      <div class="view-stack">
-        <section class="metrics-grid" aria-label="Business summary">
+      <div class="view-stack ebay-dashboard">
+        <section class="metrics-grid ebay-metrics" aria-label="eBay business summary">
           <article class="metric-card tone-green">
-            <div class="metric-top"><span>Gross sales</span><CircleDollarSign size={18} /></div>
-            <strong>{money(metrics.gross)}</strong>
-            <p>{filteredSales.length} sales · {channelLabel}</p>
+            <div class="metric-top"><span>eBay gross sales</span><CircleDollarSign size={18} /></div>
+            <strong>{money(dashboardMetrics.gross)}</strong>
+            <p>{dashboardSales.length} sale{dashboardSales.length === 1 ? '' : 's'} in this period</p>
           </article>
           <article class="metric-card tone-blue">
-            <div class="metric-top"><span>{profitLabel}</span><TrendingUp size={18} /></div>
-            <strong>{money(metrics.profit)}</strong>
-            <p>{profitIsFinal ? `${percent(metrics.margin)} true margin` : metrics.missingCogs ? `${metrics.missingCogs} sale cost${metrics.missingCogs === 1 ? '' : 's'} still needed` : 'Financial data still reconciling'}</p>
+            <div class="metric-top"><span>eBay net profit</span><TrendingUp size={18} /></div>
+            <strong>{money(dashboardMetrics.profit)}</strong>
+            <p>{dashboardProfitIsFinal ? `${percent(dashboardMetrics.margin)} true margin` : dashboardMetrics.missingCogs ? `${dashboardMetrics.missingCogs} sale cost${dashboardMetrics.missingCogs === 1 ? '' : 's'} still needed` : 'Financial data still reconciling'}</p>
           </article>
           <article class="metric-card tone-violet">
-            <div class="metric-top"><span>Active inventory</span><ShoppingBag size={18} /></div>
-            <strong>{activeItems.length}</strong>
-            <p>{money(activeValue)} listed</p>
+            <div class="metric-top"><span>Inventory invested</span><Boxes size={18} /></div>
+            <strong>{money(inventoryCostBasis)}</strong>
+            <p>{unsoldItems.length} unsold item{unsoldItems.length === 1 ? '' : 's'} carrying COGS</p>
           </article>
           <article class="metric-card tone-amber">
-            <div class="metric-top"><span>Average age</span><Clock3 size={18} /></div>
-            <strong>{avgAge} days</strong>
-            <p>{stale ? `${stale} stale listing${stale === 1 ? '' : 's'}` : activeItems.length ? 'Inventory is moving' : 'No active listings yet'}</p>
+            <div class="metric-top"><span>Active listings</span><ShoppingBag size={18} /></div>
+            <strong>{activeItems.length}</strong>
+            <p>{money(activeValue)} current asking value</p>
           </article>
         </section>
 
-        <section class="dashboard-grid">
-          <article class="panel profit-panel">
+        <section class="dashboard-grid ebay-operating-grid">
+          <article class="panel dashboard-sales-panel">
             <div class="panel-heading">
-              <div><span class="kicker">PERIOD PERFORMANCE</span><h2>Profit by sale</h2></div>
-              <button onclick={() => view = 'sales'}>View all <ChevronRight size={16} /></button>
+              <div><span class="kicker">RECENT EBAY SALES</span><h2>What sold</h2></div>
+              <button onclick={() => { channelFilter = 'ebay'; view = 'sales'; }}>View sales <ChevronRight size={16} /></button>
             </div>
-            {#if filteredSales.length}
-              <div class="profit-bars">
-                {#each filteredSales.slice(0, 5) as sale}
-                  <div class="profit-row">
-                    <span>{shortDate(sale.soldAt)}</span>
-                    <div class="bar-track"><span style:width={`${Math.max(8, sale.netProfitCents / maxProfit * 100)}%`}></span></div>
-                    <strong>{money(sale.netProfitCents)}</strong>
-                  </div>
+            {#if dashboardSales.length}
+              <div class="dashboard-sale-list">
+                {#each dashboardSales.slice(0, 5) as sale}
+                  <button class="dashboard-sale-row" type="button" onclick={() => selectedSale = sale}>
+                    <span class="dashboard-sale-main"><strong>{sale.title}</strong><small>{shortDate(sale.soldAt)} · {sale.ebayOrderId}</small></span>
+                    <span class="dashboard-sale-money"><small>Gross</small><strong>{money(sale.salePriceCents + sale.shippingChargedCents)}</strong></span>
+                    <span class:missing={sale.cogsCents == null} class="dashboard-sale-profit"><small>{sale.cogsCents == null ? 'COGS missing' : `${percent(sale.margin)} margin`}</small><strong>{money(sale.netProfitCents)}</strong></span>
+                    <ChevronRight size={16} />
+                  </button>
                 {/each}
               </div>
-              <div class="margin-footer">
-                <ArrowUpRight size={17} />
-                <span><strong>{percent(metrics.margin)}</strong> {profitIsFinal ? 'true margin after fees and COGS' : 'current margin before missing costs are entered'}</span>
-              </div>
+              <div class="margin-footer"><ArrowUpRight size={17} /><span><strong>{percent(dashboardMetrics.margin)}</strong> {dashboardProfitIsFinal ? 'eBay margin after fees and COGS' : 'current eBay margin while costs reconcile'}</span></div>
             {:else}
-              <div class="empty-state"><strong>No sales in this period.</strong>Try a wider reporting range.</div>
+              <div class="empty-state"><strong>No eBay sales in this period.</strong>Try a wider reporting range.</div>
             {/if}
           </article>
 
-          <article class="panel attention-panel">
-            <div class="panel-heading"><div><span class="kicker">QUEUE</span><h2>Needs attention</h2></div><AlertTriangle size={20} /></div>
-            <button onclick={openCogsQueue}>
-              <span class="attention-icon amber"><Tag size={17} /></span>
-              <span><strong>{metrics.missingCogs} missing sale cost{metrics.missingCogs === 1 ? '' : 's'}</strong><small>{metrics.missingCogs ? 'Finish COGS to unlock true profit' : 'Sale costs are complete'}</small></span>
+          <article class="panel attention-panel ebay-action-panel">
+            <div class="panel-heading"><div><span class="kicker">TODAY</span><h2>Next actions</h2></div><PackageCheck size={20} /></div>
+            <a class="dashboard-action-link" href="/listing-prep">
+              <span class="attention-icon blue"><ClipboardCheck size={17} /></span>
+              <span><strong>{unlistedCount} item{unlistedCount === 1 ? '' : 's'} waiting to list</strong><small>{money(unlistedInvestment)} in unlisted inventory COGS</small></span>
               <ChevronRight size={17} />
-            </button>
+            </a>
             <button onclick={() => { filter = 'active'; view = 'inventory'; }}>
               <span class="attention-icon red"><Clock3 size={17} /></span>
-              <span><strong>{stale} listing{stale === 1 ? '' : 's'} over 90 days</strong><small>Review price or end listing</small></span>
+              <span><strong>{stale} listing{stale === 1 ? '' : 's'} over 90 days</strong><small>{stale ? 'Review price, listing, or storage position' : `${avgAge} day average listing age`}</small></span>
               <ChevronRight size={17} />
             </button>
-            <button onclick={() => view = 'accounting'}>
-              <span class="attention-icon blue"><ReceiptText size={17} /></span>
-              <span><strong>Review the money trail</strong><small>Fees, labels, adjustments and payouts</small></span>
+            <button onclick={openCogsQueue}>
+              <span class="attention-icon amber"><Tag size={17} /></span>
+              <span><strong>{dashboardMetrics.missingCogs} eBay sale cost{dashboardMetrics.missingCogs === 1 ? '' : 's'} missing</strong><small>{dashboardMetrics.missingCogs ? 'Finish COGS to lock true profit' : 'Sold inventory is fully costed'}</small></span>
               <ChevronRight size={17} />
             </button>
+            <a class="dashboard-action-link" href="/import">
+              <span class="attention-icon teal"><FileSpreadsheet size={17} /></span>
+              <span><strong>{latestEbayDataAt ? `eBay data through ${shortDate(latestEbayDataAt)}` : 'Import your first eBay Transaction report'}</strong><small>{latestEbayDataAt ? 'Drop a newer Seller Hub report when you want to reconcile new sales' : 'Seller Hub CSV is the active Sellquity data feed'}</small></span>
+              <ChevronRight size={17} />
+            </a>
           </article>
         </section>
 
-        <section class="panel recent-inventory">
+        <section class="panel inventory-pulse-panel">
           <div class="panel-heading table-heading">
-            <div><span class="kicker">LIVE INVENTORY</span><h2>Items to watch</h2></div>
-            <button onclick={() => view = 'inventory'}>Open inventory <ChevronRight size={16} /></button>
+            <div><span class="kicker">INVENTORY PULSE</span><h2>What your money is doing</h2></div>
+            <div class="pulse-actions"><a href="/purchase-lots">Purchase lots <ChevronRight size={14} /></a><button onclick={() => view = 'inventory'}>Open inventory <ChevronRight size={14} /></button></div>
+          </div>
+          <div class="inventory-pulse-stats">
+            <span><small>Waiting to list</small><strong>{unlistedCount}</strong><em>{money(unlistedInvestment)} cost basis</em></span>
+            <span><small>Active asking value</small><strong>{money(activeValue)}</strong><em>{activeItems.length} live listing{activeItems.length === 1 ? '' : 's'}</em></span>
+            <span><small>Average listing age</small><strong>{avgAge}d</strong><em>{stale ? `${stale} over 90 days` : 'No stale listings'}</em></span>
+            <span><small>Total inventory invested</small><strong>{money(inventoryCostBasis)}</strong><em>{unsoldItems.length} unsold item{unsoldItems.length === 1 ? '' : 's'}</em></span>
           </div>
           {#if activeItems.length}
-            {@render inventoryTable(activeItems.slice(0, 5), false)}
+            <div class="pulse-table-heading"><span>Oldest active listings</span><small>These deserve your attention first.</small></div>
+            {@render inventoryTable([...activeItems].sort((a, b) => b.ageDays - a.ageDays).slice(0, 5), false)}
           {:else}
-            <div class="empty-state">
-              <strong>No active listings yet.</strong>
-              Mark an item listed from Listing Prep to track price and listing age while eBay API access is pending.
-            </div>
+            <div class="empty-state"><strong>No active listings yet.</strong>Move an item through Listing Prep and mark it listed to start tracking asking value and listing age.</div>
           {/if}
         </section>
       </div>
@@ -1366,8 +1697,63 @@
           <div class="inventory-summary-actions">
             <a class="button secondary" href="/purchase-lots"><ShoppingBag size={17} /> Purchase lots</a>
             <a class="button secondary" href="/listing-prep"><ClipboardCheck size={17} /> Listing prep</a>
+            <a class="button secondary" href="/categories"><Settings size={17} /> Categories</a>
             <button class="button secondary" onclick={() => skuManagerOpen = true}><Archive size={17} /> SKU manager</button>
             <button class="button primary" onclick={openIntake}><Tag size={17} /> Add inventory</button>
+          </div>
+        </section>
+
+        <section class="panel inventory-intelligence-panel">
+          <div class="panel-heading table-heading">
+            <div>
+              <span class="kicker">INVENTORY INTELLIGENCE</span>
+              <h2>Where your money is getting stuck</h2>
+            </div>
+            <span class="inventory-health-score">
+              {inventoryHealthSummary.sellThrough.toFixed(0)}% tracked sell-through
+            </span>
+          </div>
+
+          <div class="inventory-risk-grid">
+            <button type="button" onclick={() => { filter = 'unlisted'; inventoryAgeBucket = 'all'; inventorySort = 'unlisted-oldest'; }}>
+              <span>Unlisted 30+ days</span>
+              <strong>{unlistedOver30.length}</strong>
+              <small>{money(unlistedOver30Cogs)} tied up</small>
+            </button>
+            <button type="button" onclick={() => { filter = 'active'; inventoryAgeBucket = '61-90'; inventorySort = 'oldest'; }}>
+              <span>Active 61–90 days</span>
+              <strong>{activeItems.filter((item) => item.ageDays >= 61 && item.ageDays <= 90).length}</strong>
+              <small>{money(activeItems.filter((item) => item.ageDays >= 61 && item.ageDays <= 90).reduce((sum, item) => sum + (item.costCents ?? 0), 0))} COGS</small>
+            </button>
+            <button class:danger={stale > 0} type="button" onclick={() => { filter = 'active'; inventoryAgeBucket = '90+'; inventorySort = 'oldest'; }}>
+              <span>Dead-stock watch</span>
+              <strong>{stale}</strong>
+              <small>{money(staleCogs)} COGS at 91+ days</small>
+            </button>
+            <button type="button" onclick={() => { filter = 'all'; inventoryAgeBucket = 'all'; inventorySort = 'highest-cost'; }}>
+              <span>Total unsold capital</span>
+              <strong>{money(inventoryCostBasis)}</strong>
+              <small>{unsoldItems.length} items ranked by COGS</small>
+            </button>
+          </div>
+
+          <div class="aging-strip">
+            <span class="aging-title">Active listing age</span>
+            <button class:active={inventoryAgeBucket === '0-30'} type="button" onclick={() => setInventoryAgeBucket('0-30')}>
+              <strong>0–30d</strong><small>{activeAgeBuckets.fresh.count} · {money(activeAgeBuckets.fresh.asking)} ask</small>
+            </button>
+            <button class:active={inventoryAgeBucket === '31-60'} type="button" onclick={() => setInventoryAgeBucket('31-60')}>
+              <strong>31–60d</strong><small>{activeAgeBuckets.warming.count} · {money(activeAgeBuckets.warming.asking)} ask</small>
+            </button>
+            <button class:active={inventoryAgeBucket === '61-90'} type="button" onclick={() => setInventoryAgeBucket('61-90')}>
+              <strong>61–90d</strong><small>{activeAgeBuckets.aging.count} · {money(activeAgeBuckets.aging.asking)} ask</small>
+            </button>
+            <button class:danger={activeAgeBuckets.stale.count > 0} class:active={inventoryAgeBucket === '90+'} type="button" onclick={() => setInventoryAgeBucket('90+')}>
+              <strong>91+d</strong><small>{activeAgeBuckets.stale.count} · {money(activeAgeBuckets.stale.asking)} ask</small>
+            </button>
+            {#if inventoryAgeBucket !== 'all'}
+              <button class="aging-clear" type="button" onclick={() => inventoryAgeBucket = 'all'}>Clear age</button>
+            {/if}
           </div>
         </section>
 
@@ -1393,9 +1779,25 @@
                 {/each}
               </select>
             </label>
+            <label class="inventory-sort-filter">
+              <span class="sr-only">Sort inventory</span>
+              <select bind:value={inventorySort}>
+                <option value="default">Default sort</option>
+                <option value="oldest">Oldest active first</option>
+                <option value="highest-cost">Highest COGS first</option>
+                <option value="highest-ask">Highest asking value</option>
+                <option value="unlisted-oldest">Unlisted oldest first</option>
+              </select>
+            </label>
             <div class="filter-tabs" role="group" aria-label="Filter inventory">
               {#each ['all', 'active', 'scheduled', 'unlisted', 'sold'] as value}
-                <button class:active={filter === value} onclick={() => filter = value as Filter}>{value}</button>
+                <button
+                  class:active={filter === value}
+                  onclick={() => {
+                    filter = value as Filter;
+                    if (value !== 'active') inventoryAgeBucket = 'all';
+                  }}
+                >{value}</button>
               {/each}
             </div>
           </div>
@@ -1677,11 +2079,239 @@
           </div>
         </section>
 
-        <section class="metrics-grid report-metrics" aria-label="Report summary">
-          <article class="metric-card tone-green"><div class="metric-top"><span>Gross revenue</span><CircleDollarSign size={18} /></div><strong>{money(metrics.gross)}</strong><p>{filteredSales.length} sales</p></article>
-          <article class="metric-card tone-blue"><div class="metric-top"><span>Known COGS</span><Tag size={18} /></div><strong>{money(metrics.cogs)}</strong><p>{metrics.missingCogs ? `${metrics.missingCogs} costs still missing` : 'Fully costed'}</p></article>
-          <article class="metric-card tone-violet"><div class="metric-top"><span>Business expenses</span><ReceiptText size={18} /></div><strong>{money(metrics.businessExpenses)}</strong><p>{channelFilter === 'all' ? `${manualExpenses.length} manual expense${manualExpenses.length === 1 ? '' : 's'}` : 'Business-wide · All channels only'}</p></article>
-          <article class="metric-card tone-amber"><div class="metric-top"><span>{profitLabel}</span><WalletCards size={18} /></div><strong>{money(metrics.profit)}</strong><p>{percent(metrics.margin)} margin</p></article>
+        <section class="metrics-grid report-metrics" aria-label="Profit analytics summary">
+          <article class="metric-card tone-green">
+            <div class="metric-top"><span>Gross revenue</span><CircleDollarSign size={18} /></div>
+            <strong>{money(metrics.gross)}</strong>
+            <p>{filteredSales.length} sale{filteredSales.length === 1 ? '' : 's'} in this period</p>
+          </article>
+          <article class="metric-card tone-blue">
+            <div class="metric-top"><span>{profitLabel}</span><WalletCards size={18} /></div>
+            <strong>{money(metrics.profit)}</strong>
+            <p>{percent(metrics.margin)} true business margin</p>
+          </article>
+          <article class="metric-card tone-violet">
+            <div class="metric-top"><span>Avg costed sale profit</span><TrendingUp size={18} /></div>
+            <strong>{money(analyticsSummary.averageSaleProfit)}</strong>
+            <p>{analyticsSummary.costedSales} fully costed sale{analyticsSummary.costedSales === 1 ? '' : 's'}</p>
+          </article>
+          <article class="metric-card tone-amber">
+            <div class="metric-top"><span>Costed-sale ROI</span><ArrowUpRight size={18} /></div>
+            <strong>{analyticsSummary.overallRoi == null ? '—' : percent(analyticsSummary.overallRoi)}</strong>
+            <p>{analyticsSummary.missingCogs ? `${analyticsSummary.missingCogs} sale${analyticsSummary.missingCogs === 1 ? '' : 's'} excluded · missing COGS` : 'All sales included'}</p>
+          </article>
+        </section>
+
+        <section class="analytics-intro panel">
+          <div>
+            <span class="kicker">BUYING INTELLIGENCE</span>
+            <h2>What are you actually good at selling?</h2>
+            <p>
+              Category and source profit below use sale-level marketplace costs + COGS.
+              Business-wide manual expenses are intentionally not assigned to individual categories or sources.
+            </p>
+          </div>
+          {#if analyticsSummary.missingCogs}
+            <span class="analytics-warning"><AlertTriangle size={15} /> {analyticsSummary.missingCogs} sale{analyticsSummary.missingCogs === 1 ? '' : 's'} missing COGS</span>
+          {:else}
+            <span class="analytics-ready"><Check size={15} /> Fully costed rankings</span>
+          {/if}
+        </section>
+
+        <section class="analytics-split">
+          <article class="panel analytics-table-panel">
+            <div class="panel-heading table-heading">
+              <div><span class="kicker">BY CATEGORY</span><h2>What makes you money</h2></div>
+              <Boxes size={19} />
+            </div>
+            {#if categoryAnalytics.length}
+              <div class="table-wrap">
+                <table class="analytics-table">
+                  <thead><tr>
+                    <th>Category</th>
+                    <th class="num">Sales</th>
+                    <th class="num">Gross</th>
+                    <th class="num">Avg profit</th>
+                    <th class="num">Profit</th>
+                    <th class="num">Margin</th>
+                    <th class="num">ROI</th>
+                  </tr></thead>
+                  <tbody>
+                    {#each categoryAnalytics as row}
+                      <tr>
+                        <td>
+                          <span class="analytics-name">
+                            <strong>{row.key}</strong>
+                            {#if row.missingCogs}<small>{row.missingCogs} COGS missing</small>{/if}
+                          </span>
+                        </td>
+                        <td class="num">{row.sales}</td>
+                        <td class="num">{money(row.gross)}</td>
+                        <td class="num">{money(row.averageProfit)}</td>
+                        <td class:negative={row.profit < 0} class="num profit">{money(row.profit)}</td>
+                        <td class:negative={row.margin < 0} class="num">{percent(row.margin)}</td>
+                        <td class="num">{row.roi == null ? '—' : percent(row.roi)}</td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+            {:else}
+              <div class="empty-state"><strong>No category analytics yet.</strong>Sales linked to inventory will appear here.</div>
+            {/if}
+          </article>
+
+          <article class="panel analytics-table-panel">
+            <div class="panel-heading table-heading">
+              <div><span class="kicker">BY SOURCE</span><h2>Where the good inventory comes from</h2></div>
+              <MapPin size={19} />
+            </div>
+            {#if sourceAnalytics.length}
+              <div class="table-wrap">
+                <table class="analytics-table">
+                  <thead><tr>
+                    <th>Source</th>
+                    <th class="num">Sales</th>
+                    <th class="num">Gross</th>
+                    <th class="num">Avg profit</th>
+                    <th class="num">Profit</th>
+                    <th class="num">Margin</th>
+                    <th class="num">ROI</th>
+                  </tr></thead>
+                  <tbody>
+                    {#each sourceAnalytics as row}
+                      <tr>
+                        <td>
+                          <span class="analytics-name">
+                            <strong>{row.key}</strong>
+                            {#if row.missingCogs}<small>{row.missingCogs} COGS missing</small>{/if}
+                          </span>
+                        </td>
+                        <td class="num">{row.sales}</td>
+                        <td class="num">{money(row.gross)}</td>
+                        <td class="num">{money(row.averageProfit)}</td>
+                        <td class:negative={row.profit < 0} class="num profit">{money(row.profit)}</td>
+                        <td class:negative={row.margin < 0} class="num">{percent(row.margin)}</td>
+                        <td class="num">{row.roi == null ? '—' : percent(row.roi)}</td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+            {:else}
+              <div class="empty-state"><strong>No source analytics yet.</strong>Add a Source to inventory or use Purchase Lots to build sourcing history.</div>
+            {/if}
+          </article>
+        </section>
+
+        <section class="panel winners-panel">
+          <div class="panel-heading table-heading">
+            <div><span class="kicker">WINNERS &amp; LOSERS</span><h2>The stuff worth remembering</h2></div>
+            <TrendingUp size={19} />
+          </div>
+
+          {#if costedSaleAnalytics.length}
+            <div class="winner-grid">
+              <button type="button" class="winner-card good" onclick={() => highestProfitSale && (selectedSale = highestProfitSale.sale)}>
+                <span class="winner-label">Highest profit</span>
+                <strong>{highestProfitSale?.sale.title ?? '—'}</strong>
+                <span class="winner-money">{highestProfitSale ? money(highestProfitSale.profit) : '—'}</span>
+                <small>{highestProfitSale ? `${percent(highestProfitSale.margin)} margin` : ''}</small>
+              </button>
+
+              <button type="button" class="winner-card good" onclick={() => highestRoiSale && (selectedSale = highestRoiSale.sale)}>
+                <span class="winner-label">Highest ROI</span>
+                <strong>{highestRoiSale?.sale.title ?? 'No ROI yet'}</strong>
+                <span class="winner-money">{highestRoiSale?.sale.roi == null ? '—' : percent(highestRoiSale.sale.roi)}</span>
+                <small>{highestRoiSale ? `${money(highestRoiSale.profit)} profit` : 'Needs non-zero COGS'}</small>
+              </button>
+
+              <button type="button" class:bad={lowestProfitSale ? lowestProfitSale.profit < 0 : false} class="winner-card" onclick={() => lowestProfitSale && (selectedSale = lowestProfitSale.sale)}>
+                <span class="winner-label">{lowestProfitSale && lowestProfitSale.profit < 0 ? 'Biggest loss' : 'Lowest profit'}</span>
+                <strong>{lowestProfitSale?.sale.title ?? '—'}</strong>
+                <span class="winner-money">{lowestProfitSale ? money(lowestProfitSale.profit) : '—'}</span>
+                <small>{lowestProfitSale ? `${percent(lowestProfitSale.margin)} margin` : ''}</small>
+              </button>
+
+              <button type="button" class:bad={lowestMarginSale ? lowestMarginSale.margin < 0 : false} class="winner-card" onclick={() => lowestMarginSale && (selectedSale = lowestMarginSale.sale)}>
+                <span class="winner-label">Lowest margin</span>
+                <strong>{lowestMarginSale?.sale.title ?? '—'}</strong>
+                <span class="winner-money">{lowestMarginSale ? percent(lowestMarginSale.margin) : '—'}</span>
+                <small>{lowestMarginSale ? `${money(lowestMarginSale.profit)} profit` : ''}</small>
+              </button>
+            </div>
+          {:else}
+            <div class="empty-state">
+              <strong>No fully costed sales to rank yet.</strong>
+              Finish sale COGS and Sellquity will start calling out your winners and losers.
+            </div>
+          {/if}
+        </section>
+
+        <section class="panel inventory-health-report">
+          <div class="panel-heading table-heading">
+            <div>
+              <span class="kicker">INVENTORY HEALTH</span>
+              <h2>Capital and sell-through by category</h2>
+            </div>
+            <Boxes size={19} />
+          </div>
+
+          <div class="inventory-health-summary">
+            <span><small>Tracked items</small><strong>{inventoryHealthSummary.tracked}</strong></span>
+            <span><small>Tracked sell-through</small><strong>{percent(inventoryHealthSummary.sellThrough)}</strong></span>
+            <span><small>Unlisted 30+ days</small><strong>{inventoryHealthSummary.unlistedOver30}</strong></span>
+            <span><small>Active 61+ days</small><strong>{inventoryHealthSummary.activeOver60}</strong></span>
+          </div>
+
+          {#if inventoryHealthByCategory.length}
+            <div class="table-wrap">
+              <table class="inventory-health-table">
+                <thead>
+                  <tr>
+                    <th>Category</th>
+                    <th class="num">Tracked</th>
+                    <th class="num">Sold</th>
+                    <th class="num">Sell-through</th>
+                    <th class="num">Unsold</th>
+                    <th class="num">Unsold COGS</th>
+                    <th class="num">Active ask</th>
+                    <th class="num">Avg age</th>
+                    <th class="num">91+d</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {#each inventoryHealthByCategory as row}
+                    <tr>
+                      <td>
+                        <span class="health-category">
+                          <strong>{row.label}</strong>
+                          <small>{row.unlisted} unlisted · {row.active} active</small>
+                        </span>
+                      </td>
+                      <td class="num">{row.tracked}</td>
+                      <td class="num">{row.sold}</td>
+                      <td class="num">{percent(row.sellThrough)}</td>
+                      <td class="num">{row.unsold}</td>
+                      <td class="num">{money(row.unsoldCogs)}</td>
+                      <td class="num">{money(row.activeAsking)}</td>
+                      <td class="num">{row.averageActiveAge == null ? '—' : `${row.averageActiveAge}d`}</td>
+                      <td class:age-stale={row.stale > 0} class="num">{row.stale}</td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
+          {:else}
+            <div class="empty-state">
+              <strong>No inventory health data yet.</strong>
+              Add or import inventory and Sellquity will start measuring where capital is sitting.
+            </div>
+          {/if}
+
+          <div class="health-footnote">
+            Sell-through here means sold inventory ÷ all tracked inventory in Sellquity. It is an operational inventory ratio, not an eBay marketplace-wide sell-through estimate.
+          </div>
         </section>
 
         <section class="reports-grid">
@@ -1891,7 +2521,7 @@
         <td><span class="location"><MapPin size={14} />{item.location || 'Not set'}</span></td>
         <td class:missing={item.costCents == null} class="num">{money(item.costCents)}</td>
         <td class="num">{money(item.listPriceCents)}</td>
-        <td class="num"><span class:age-stale={item.ageDays >= 90}>{item.ageDays ? `${item.ageDays}d` : '—'}</span></td>
+        <td class="num"><span class:age-stale={item.ageDays >= 90}>{item.status === 'active' || item.status === 'scheduled' ? `${item.ageDays}d` : '—'}</span></td>
         <td class="action-cell"><button class="button mini secondary" onclick={() => openEditor(item)}>Edit</button></td>
       </tr>
     {/each}

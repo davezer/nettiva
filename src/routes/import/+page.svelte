@@ -35,6 +35,19 @@
     cogsPreserved: number;
   };
 
+  type EbayActiveListingsImportResult = {
+    batchId: string;
+    rowsSeen: number;
+    listingsImported: number;
+    inventoryCreated: number;
+    inventoryMatched: number;
+    skusObserved: number;
+    categoriesInferred: number;
+    otherCategoryCount: number;
+    ageTrackingStartedNow: number;
+    multiQuantityListings: number;
+  };
+
   type WhatnotImportResult = {
     batchIds: string[];
     filesImported: number;
@@ -78,6 +91,11 @@
   let ebayResult = $state<EbayImportResult | null>(null);
   let whatnotResult = $state<WhatnotImportResult | null>(null);
   let ledgerResult = $state<WhatnotLedgerResult | null>(null);
+  let activeListingsFile = $state<File | null>(null);
+  let activeListingsImporting = $state(false);
+  let activeListingsDragging = $state(false);
+  let activeListingsError = $state<string | null>(null);
+  let activeListingsResult = $state<EbayActiveListingsImportResult | null>(null);
 
   function money(cents: number) {
     return new Intl.NumberFormat('en-US', {
@@ -115,6 +133,54 @@
     whatnotMode = value;
     files = [];
     resetResults();
+  }
+
+  function takeActiveListingsFile(selected: File[]) {
+    const csv = selected.find((file) => file.name.toLowerCase().endsWith('.csv')) ?? null;
+    activeListingsFile = csv;
+    activeListingsError = selected.length && !csv ? 'Choose a CSV export.' : null;
+    activeListingsResult = null;
+  }
+
+  function handleActiveListingsDrop(event: DragEvent) {
+    event.preventDefault();
+    activeListingsDragging = false;
+    takeActiveListingsFile([...(event.dataTransfer?.files ?? [])]);
+  }
+
+  async function submitActiveListings(event: SubmitEvent) {
+    event.preventDefault();
+    if (!activeListingsFile || activeListingsImporting) return;
+
+    activeListingsImporting = true;
+    activeListingsError = null;
+    activeListingsResult = null;
+
+    const form = new FormData();
+    form.append('file', activeListingsFile);
+
+    try {
+      const response = await fetch('/api/ebay/import-active-listings', {
+        method: 'POST',
+        body: form
+      });
+
+      const payload = await response.json() as
+        | (EbayActiveListingsImportResult & { error?: string })
+        | { error?: string };
+
+      if (!response.ok || !('listingsImported' in payload)) {
+        activeListingsError = payload.error ?? 'Active listings import failed.';
+        return;
+      }
+
+      activeListingsResult = payload as EbayActiveListingsImportResult;
+      await invalidateAll();
+    } catch {
+      activeListingsError = 'Sellquity could not upload this active listings report.';
+    } finally {
+      activeListingsImporting = false;
+    }
   }
 
   function takeFiles(selected: File[]) {
@@ -409,6 +475,100 @@
           <a href="/listing-prep"><Tag size={15} /> Open Listing Prep</a>
         </section>
       </aside>
+    </section>
+
+    <section class="active-listings-import">
+      <div class="active-listings-copy">
+        <span class="eyebrow">CURRENT EBAY INVENTORY</span>
+        <h2>Import All active listings</h2>
+        <p>
+          Seller Hub → Reports → Downloads → <strong>Listings</strong> →
+          <strong>All active listings</strong>. This creates your current Sellquity inventory,
+          listing price, eBay Item ID, and SKU/custom-label identity before transaction history is imported.
+        </p>
+
+        <div class="active-listings-rules">
+          <span><Check size={14} /><strong>Existing SKU preserved</strong><small>Imported labels seed Sellquity's SKU high-water automatically.</small></span>
+          <span><Check size={14} /><strong>Category inferred when possible</strong><small>Known/custom SKU prefixes are used; everything else starts in Other.</small></span>
+          <span><Check size={14} /><strong>No fake acquisition data</strong><small>Purchase cost and sourcing source remain blank until you enter them.</small></span>
+        </div>
+      </div>
+
+      <form class="active-listings-form" onsubmit={submitActiveListings}>
+        <label
+          class:dragging={activeListingsDragging}
+          class="active-listings-drop"
+          ondragenter={(event) => {
+            event.preventDefault();
+            activeListingsDragging = true;
+          }}
+          ondragover={(event) => {
+            event.preventDefault();
+            activeListingsDragging = true;
+          }}
+          ondragleave={() => activeListingsDragging = false}
+          ondrop={handleActiveListingsDrop}
+        >
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            onchange={(event) => takeActiveListingsFile([...(event.currentTarget.files ?? [])])}
+          />
+          <CloudUpload size={24} />
+          {#if activeListingsFile}
+            <span><small>READY</small><strong>{activeListingsFile.name}</strong></span>
+          {:else}
+            <span><strong>Drop active listings CSV</strong><small>or click to choose it</small></span>
+          {/if}
+        </label>
+
+        <button class="active-listings-button" disabled={!activeListingsFile || activeListingsImporting}>
+          {#if activeListingsImporting}<RefreshCw class="spin" size={16} />{:else}<PackageCheck size={16} />{/if}
+          {activeListingsImporting ? 'Building current inventory…' : 'Import current inventory'}
+        </button>
+
+        {#if activeListingsError}
+          <div class="message error compact-error"><AlertTriangle size={16} /><span>{activeListingsError}</span></div>
+        {/if}
+
+        {#if activeListingsResult}
+          <div class="active-listings-result">
+            <div>
+              <strong>{activeListingsResult.listingsImported} active listing{activeListingsResult.listingsImported === 1 ? '' : 's'} imported</strong>
+              <small>
+                {activeListingsResult.inventoryCreated} new inventory ·
+                {activeListingsResult.inventoryMatched} existing match{activeListingsResult.inventoryMatched === 1 ? '' : 'es'}
+              </small>
+            </div>
+
+            <div class="active-result-grid">
+              <span><b>{activeListingsResult.skusObserved}</b><small>SKU sequences observed</small></span>
+              <span><b>{activeListingsResult.categoriesInferred}</b><small>categories inferred</small></span>
+              <span><b>{activeListingsResult.otherCategoryCount}</b><small>started in Other</small></span>
+            </div>
+
+            {#if activeListingsResult.ageTrackingStartedNow}
+              <p>
+                Listing age starts today for {activeListingsResult.ageTrackingStartedNow} listing{activeListingsResult.ageTrackingStartedNow === 1 ? '' : 's'}
+                because eBay's standard All active listings report does not include the original start date.
+              </p>
+            {/if}
+
+            {#if activeListingsResult.multiQuantityListings}
+              <p class="warning">
+                <AlertTriangle size={14} />
+                {activeListingsResult.multiQuantityListings} listing{activeListingsResult.multiQuantityListings === 1 ? '' : 's'} has quantity above 1.
+                Sellquity currently tracks that as one inventory identity with listing quantity.
+              </p>
+            {/if}
+
+            <div class="result-links">
+              <a class="primary-link" href="/">Open inventory →</a>
+              <a href="/categories">Review categories →</a>
+            </div>
+          </div>
+        {/if}
+      </form>
     </section>
 
     <details class="other-imports">
@@ -984,4 +1144,178 @@
     .secondary-form { grid-template-columns: 1fr; }
     .secondary-picker { align-items: flex-start; flex-direction: column; }
   }
+
+
+  .active-listings-import {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(390px, .75fr);
+    gap: 22px;
+    margin-top: 18px;
+    border: 1px solid #19314f;
+    border-radius: 15px;
+    padding: 21px;
+    background:
+      radial-gradient(circle at 0% 0%, #0069e311 0, transparent 22rem),
+      linear-gradient(145deg, #0d1928, #09131f);
+    box-shadow: 0 12px 38px #0000002b;
+  }
+
+  .active-listings-copy h2 {
+    margin: 6px 0 8px;
+    font-size: 1.18rem;
+  }
+
+  .active-listings-copy > p {
+    margin: 0;
+    color: #8199ad;
+    font-size: .73rem;
+    line-height: 1.55;
+  }
+
+  .active-listings-copy > p strong { color: #dcebf5; }
+
+  .active-listings-rules {
+    display: grid;
+    gap: 7px;
+    margin-top: 14px;
+  }
+
+  .active-listings-rules > span {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: 8px;
+    align-items: center;
+  }
+
+  .active-listings-rules > span :global(svg) {
+    grid-row: 1 / 3;
+    color: #01d4a5;
+  }
+
+  .active-listings-rules strong { font-size: .67rem; }
+  .active-listings-rules small { color: #68859a; font-size: .59rem; line-height: 1.35; }
+
+  .active-listings-form {
+    align-content: start;
+  }
+
+  .active-listings-drop {
+    min-height: 112px;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 11px;
+    align-items: center;
+    border: 1px dashed #256083;
+    border-radius: 11px;
+    padding: 16px;
+    color: #68e8d7;
+    background: #071722;
+    cursor: pointer;
+  }
+
+  .active-listings-drop.dragging,
+  .active-listings-drop:hover {
+    border-color: #01d0e9;
+    background: #08202b;
+  }
+
+  .active-listings-drop input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .active-listings-drop > span {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .active-listings-drop strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #eef9ff;
+    font-size: .73rem;
+  }
+
+  .active-listings-drop small {
+    color: #68859a;
+    font-size: .61rem;
+  }
+
+  .active-listings-button {
+    min-height: 42px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    border: 1px solid #197790;
+    border-radius: 8px;
+    color: #66e7d5;
+    background: #09232c;
+    font-weight: 900;
+    cursor: pointer;
+  }
+
+  .active-listings-button:disabled {
+    opacity: .42;
+    cursor: not-allowed;
+  }
+
+  .active-listings-result {
+    display: grid;
+    gap: 10px;
+    border: 1px solid #165564;
+    border-radius: 10px;
+    padding: 12px;
+    background: #08212a;
+  }
+
+  .active-listings-result > div:first-child {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .active-listings-result > div:first-child strong { font-size: .76rem; }
+  .active-listings-result > div:first-child small { color: #6c8b9d; font-size: .61rem; }
+
+  .active-result-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    border: 1px solid #174052;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .active-result-grid span {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px;
+    border-right: 1px solid #174052;
+    background: #071923;
+  }
+
+  .active-result-grid span:last-child { border-right: 0; }
+  .active-result-grid b { font-size: .8rem; }
+  .active-result-grid small { color: #64869a; font-size: .55rem; }
+
+  .active-listings-result p {
+    margin: 0;
+    color: #7695a8;
+    font-size: .61rem;
+    line-height: 1.45;
+  }
+
+  @media (max-width: 900px) {
+    .active-listings-import {
+      grid-template-columns: 1fr;
+    }
+  }
+
 </style>

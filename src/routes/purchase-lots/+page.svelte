@@ -14,6 +14,7 @@
     Trash2
   } from '@lucide/svelte';
   import type { InventoryCategory } from '$lib/types';
+  import { BUILT_IN_INVENTORY_CATEGORIES } from '$lib/inventory-categories';
   import type { PageData } from './$types';
 
   type AllocationMode = 'equal' | 'manual';
@@ -29,16 +30,10 @@
 
   let { data }: { data: PageData } = $props();
 
-  const categories: { value: InventoryCategory; label: string; prefix: string }[] = [
-    { value: 'action_figures', label: 'Action Figures', prefix: 'AFG' },
-    { value: 'baseball_cards', label: 'Baseball Cards', prefix: 'BBC' },
-    { value: 'electronics', label: 'Electronics', prefix: 'ELC' },
-    { value: 'movies', label: 'Movies / Blu-ray', prefix: 'MOV' },
-    { value: 'video_games', label: 'Video Games', prefix: 'VGM' },
-    { value: 'trading_cards', label: 'Trading Cards', prefix: 'TCG' },
-    { value: 'collectibles', label: 'Collectibles', prefix: 'COL' },
-    { value: 'other', label: 'Other', prefix: 'OTH' }
-  ];
+  const categories = $derived([
+    ...BUILT_IN_INVENTORY_CATEGORIES,
+    ...(data.customInventoryCategories ?? [])
+  ]);
 
   function newDraft(category: InventoryCategory = 'action_figures'): LotItemDraft {
     const matched = categories.find((row) => row.value === category) ?? categories[0];

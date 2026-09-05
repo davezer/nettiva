@@ -1,5 +1,6 @@
 import type { PageServerLoad } from './$types';
 import { currentWorkspaceId } from '$lib/server/workspace';
+import { loadCustomInventoryCategories } from '$lib/server/inventory-categories';
 
 type PurchaseLotRow = {
   id: string;
@@ -32,7 +33,8 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
   if (!db) {
     return {
       recentLots: [] as PurchaseLotRow[],
-      recentLotItems: [] as PurchaseLotItemRow[]
+      recentLotItems: [] as PurchaseLotItemRow[],
+      customInventoryCategories: []
     };
   }
 
@@ -76,6 +78,8 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
     `).bind(workspaceId).all()
   ]);
 
+  const customInventoryCategories = await loadCustomInventoryCategories(db, workspaceId);
+
   return {
     recentLots: (lotsResult.results as unknown as PurchaseLotRow[]).map((row) => ({
       ...row,
@@ -88,6 +92,7 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
     recentLotItems: (itemsResult.results as unknown as PurchaseLotItemRow[]).map((row) => ({
       ...row,
       costCents: row.costCents == null ? null : Number(row.costCents)
-    }))
+    })),
+    customInventoryCategories
   };
 };

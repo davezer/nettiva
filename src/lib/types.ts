@@ -9,15 +9,30 @@ export type WorkspaceSummary = {
 export type MarketplaceProvider = 'ebay' | 'whatnot';
 export type TransactionProvider = MarketplaceProvider | 'manual' | 'other';
 
-export type InventoryCategory =
+export type BuiltInInventoryCategory =
   | 'action_figures'
   | 'baseball_cards'
   | 'electronics'
   | 'movies'
   | 'video_games'
   | 'trading_cards'
+  | 'clothing'
+  | 'toys_games'
   | 'collectibles'
+  | 'home_bar_kitchen'
+  | 'books_print'
+  | 'tools_hardware'
   | 'other';
+
+export type CustomInventoryCategory = `custom_${string}`;
+export type InventoryCategory = BuiltInInventoryCategory | CustomInventoryCategory;
+
+export type InventoryCategoryDefinition = {
+  value: InventoryCategory;
+  label: string;
+  prefix: string;
+  custom?: boolean;
+};
 
 export type InventoryRow = {
   id: string;
@@ -148,4 +163,6 @@ export type DashboardData = {
   transactions: AccountingTransactionRow[];
   skuReservations: SkuReservationRow[];
   skuSequences: SkuSequenceRow[];
+  /** Workspace-created inventory categories. Built-ins live in shared code. */
+  customInventoryCategories?: InventoryCategoryDefinition[];
 };

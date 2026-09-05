@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "db:reset-business": "node ./scripts/reset-business-data.mjs",
     "cf:types": "wrangler types",
     "cf:login": "wrangler login",
     "cf:create-db": "wrangler d1 create nettiva --binding DB --update-config",

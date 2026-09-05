@@ -1,19 +1,9 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import type { InventoryCategory } from '$lib/types';
+import { inventoryCategoryExists } from '$lib/server/inventory-categories';
 import { allocateSkuRange, observeSku } from '$lib/server/sku-control';
 import { currentWorkspaceId } from '$lib/server/workspace';
-
-const INVENTORY_CATEGORIES = new Set<InventoryCategory>([
-  'action_figures',
-  'baseball_cards',
-  'electronics',
-  'movies',
-  'video_games',
-  'trading_cards',
-  'collectibles',
-  'other'
-]);
 
 type InventoryInput = {
   title?: unknown;
@@ -92,7 +82,10 @@ export const POST: RequestHandler = async ({ platform, request, locals }) => {
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > 50) {
     return json({ error: 'Quantity must be between 1 and 50.' }, { status: 400 });
   }
-  if (!category || !INVENTORY_CATEGORIES.has(category)) {
+  if (
+    !category ||
+    !(await inventoryCategoryExists(platform.env.DB, workspaceId, category))
+  ) {
     return json({ error: 'Choose a valid inventory category.' }, { status: 400 });
   }
 

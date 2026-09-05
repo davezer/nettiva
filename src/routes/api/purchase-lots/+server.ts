@@ -1,30 +1,9 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import type { InventoryCategory } from '$lib/types';
+import { getInventoryCategoryDefinition } from '$lib/server/inventory-categories';
 import { allocateSkuRange } from '$lib/server/sku-control';
 import { currentWorkspaceId } from '$lib/server/workspace';
-
-const INVENTORY_CATEGORIES = new Set<InventoryCategory>([
-  'action_figures',
-  'baseball_cards',
-  'electronics',
-  'movies',
-  'video_games',
-  'trading_cards',
-  'collectibles',
-  'other'
-]);
-
-const CATEGORY_PREFIX: Record<InventoryCategory, string> = {
-  action_figures: 'AFG',
-  baseball_cards: 'BBC',
-  electronics: 'ELC',
-  movies: 'MOV',
-  video_games: 'VGM',
-  trading_cards: 'TCG',
-  collectibles: 'COL',
-  other: 'OTH'
-};
 
 type LotItemInput = {
   title?: unknown;
@@ -66,9 +45,9 @@ function purchaseDate(value: unknown) {
   return /^\d{4}-\d{2}-\d{2}$/.test(date) ? `${date}T12:00:00.000Z` : undefined;
 }
 
-function prefix(value: unknown, category: InventoryCategory) {
-  const custom = clean(value, 8)?.toUpperCase() ?? CATEGORY_PREFIX[category];
-  return /^[A-Z0-9]{2,8}$/.test(custom) ? custom : null;
+function prefix(value: unknown, defaultPrefix: string) {
+  const chosen = clean(value, 8)?.toUpperCase() ?? defaultPrefix;
+  return /^[A-Z0-9]{2,8}$/.test(chosen) ? chosen : null;
 }
 
 function equalAllocations(totalCents: number, count: number) {
@@ -115,18 +94,29 @@ export const POST: RequestHandler = async ({ platform, request, locals }) => {
       return json({ error: 'A purchase lot must contain between 1 and 50 items.' }, { status: 400 });
     }
 
-    const items = body.items.map((raw, index) => {
+    const items: {
+      title: string;
+      category: InventoryCategory;
+      conditionName: string | null;
+      skuPrefix: string;
+      manualCostCents: number | null;
+    }[] = [];
+
+    for (const [index, raw] of body.items.entries()) {
       const item = raw as LotItemInput;
       const title = clean(item.title, 240);
       const category = clean(item.category, 40) as InventoryCategory | null;
       const conditionName = clean(item.conditionName, 80);
 
       if (!title) throw new Error(`Item ${index + 1} needs a title.`);
-      if (!category || !INVENTORY_CATEGORIES.has(category)) {
+      if (!category) throw new Error(`Item ${index + 1} needs a valid category.`);
+
+      const categoryDefinition = await getInventoryCategoryDefinition(db, workspaceId, category);
+      if (!categoryDefinition) {
         throw new Error(`Item ${index + 1} needs a valid category.`);
       }
 
-      const skuPrefix = prefix(item.skuPrefix, category);
+      const skuPrefix = prefix(item.skuPrefix, categoryDefinition.prefix);
       if (!skuPrefix) throw new Error(`Item ${index + 1} has an invalid SKU prefix.`);
 
       let manualCostCents: number | null = null;
@@ -134,14 +124,14 @@ export const POST: RequestHandler = async ({ platform, request, locals }) => {
         manualCostCents = cents(item.manualCostCents, `COGS for item ${index + 1}`);
       }
 
-      return {
+      items.push({
         title,
         category,
         conditionName,
         skuPrefix,
         manualCostCents
-      };
-    });
+      });
+    }
 
     let allocations: number[];
 

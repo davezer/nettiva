@@ -2,6 +2,7 @@ import { error as httpError } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { demoData } from '$lib/demo';
 import { currentWorkspaceId, getWorkspaceContext } from '$lib/server/workspace';
+import { loadCustomInventoryCategories } from '$lib/server/inventory-categories';
 import type {
   AccountingTransactionRow,
   DashboardData,
@@ -256,6 +257,8 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
       ...row, lastNumber: Number(row.lastNumber)
     }));
 
+    const customInventoryCategories = await loadCustomInventoryCategories(db, workspaceId);
+
     const data: DashboardData = {
       currentUser: locals.authUserId
         ? {
@@ -274,6 +277,7 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
       transactions,
       skuReservations,
       skuSequences,
+      customInventoryCategories,
       unallocatedNetCents: Number(workspace?.unallocatedNetCents ?? 0)
     };
 

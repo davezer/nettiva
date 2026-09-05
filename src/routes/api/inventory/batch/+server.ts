@@ -1,18 +1,8 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import type { InventoryCategory } from '$lib/types';
+import { inventoryCategoryExists } from '$lib/server/inventory-categories';
 import { currentWorkspaceId } from '$lib/server/workspace';
-
-const INVENTORY_CATEGORIES = new Set<InventoryCategory>([
-  'action_figures',
-  'baseball_cards',
-  'electronics',
-  'movies',
-  'video_games',
-  'trading_cards',
-  'collectibles',
-  'other'
-]);
 
 const MAX_BATCH = 250;
 
@@ -103,7 +93,10 @@ export const PATCH: RequestHandler = async ({ platform, request, locals }) => {
 
   if (Object.hasOwn(body, 'category')) {
     const value = cleanNullable(body.category, 40) as InventoryCategory | null | undefined;
-    if (!value || !INVENTORY_CATEGORIES.has(value)) {
+    if (
+      !value ||
+      !(await inventoryCategoryExists(platform.env.DB, workspaceId, value))
+    ) {
       return json({ error: 'Choose a valid inventory category.' }, { status: 400 });
     }
     setClauses.push('inventory_category = ?');
