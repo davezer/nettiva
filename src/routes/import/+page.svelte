@@ -5,6 +5,7 @@
     ArrowLeft,
     Check,
     ChevronDown,
+    ChevronRight,
     CloudUpload,
     FileSpreadsheet,
     PackageCheck,
@@ -16,8 +17,8 @@
   } from '@lucide/svelte';
   import type { PageData } from './$types';
 
-  type Marketplace = 'ebay' | 'whatnot';
   type WhatnotMode = 'orders' | 'ledger';
+  type FeedState = 'current' | 'due' | 'stale' | 'missing';
 
   type EbayImportResult = {
     batchId: string;
@@ -82,20 +83,24 @@
 
   let { data }: { data: PageData } = $props();
 
-  let marketplace = $state<Marketplace>('ebay');
+  let transactionFile = $state<File | null>(null);
+  let transactionDragging = $state(false);
+  let transactionImporting = $state(false);
+  let transactionError = $state<string | null>(null);
+  let transactionResult = $state<EbayImportResult | null>(null);
+
+  let activeFile = $state<File | null>(null);
+  let activeDragging = $state(false);
+  let activeImporting = $state(false);
+  let activeError = $state<string | null>(null);
+  let activeResult = $state<EbayActiveListingsImportResult | null>(null);
+
   let whatnotMode = $state<WhatnotMode>('orders');
-  let files = $state<File[]>([]);
-  let importing = $state(false);
-  let dragging = $state(false);
-  let error = $state<string | null>(null);
-  let ebayResult = $state<EbayImportResult | null>(null);
+  let whatnotFiles = $state<File[]>([]);
+  let whatnotImporting = $state(false);
+  let whatnotError = $state<string | null>(null);
   let whatnotResult = $state<WhatnotImportResult | null>(null);
   let ledgerResult = $state<WhatnotLedgerResult | null>(null);
-  let activeListingsFile = $state<File | null>(null);
-  let activeListingsImporting = $state(false);
-  let activeListingsDragging = $state(false);
-  let activeListingsError = $state<string | null>(null);
-  let activeListingsResult = $state<EbayActiveListingsImportResult | null>(null);
 
   function money(cents: number) {
     return new Intl.NumberFormat('en-US', {
@@ -104,60 +109,146 @@
     }).format(cents / 100);
   }
 
-  function shortDate(value: string) {
+  function shortDate(value: string | null | undefined) {
+    if (!value) return 'Not yet';
     const parsed = Date.parse(value);
     if (!Number.isFinite(parsed)) return value;
+
     return new Intl.DateTimeFormat('en-US', {
       month: 'short',
       day: 'numeric',
-      year: 'numeric',
+      year: 'numeric'
+    }).format(new Date(parsed));
+  }
+
+  function shortDateTime(value: string | null | undefined) {
+    if (!value) return 'Not yet';
+    const parsed = Date.parse(value);
+    if (!Number.isFinite(parsed)) return value;
+
+    return new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
       hour: 'numeric',
       minute: '2-digit'
     }).format(new Date(parsed));
   }
 
-  function resetResults() {
-    error = null;
-    ebayResult = null;
-    whatnotResult = null;
-    ledgerResult = null;
+  function daysSince(value: string | null | undefined) {
+    if (!value) return null;
+    const parsed = Date.parse(value);
+    if (!Number.isFinite(parsed)) return null;
+    return Math.max(0, Math.floor((Date.now() - parsed) / 86_400_000));
   }
 
-  function setMarketplace(value: Marketplace) {
-    marketplace = value;
-    files = [];
-    resetResults();
+  function freshness(
+    ageDays: number | null,
+    currentThrough: number,
+    dueThrough: number
+  ): FeedState {
+    if (ageDays == null) return 'missing';
+    if (ageDays <= currentThrough) return 'current';
+    if (ageDays <= dueThrough) return 'due';
+    return 'stale';
   }
 
-  function setWhatnotMode(value: WhatnotMode) {
-    whatnotMode = value;
-    files = [];
-    resetResults();
+  function stateLabel(state: FeedState) {
+    return ({
+      current: 'Current',
+      due: 'Due soon',
+      stale: 'Refresh',
+      missing: 'Needed'
+    } as const)[state];
   }
 
-  function takeActiveListingsFile(selected: File[]) {
-    const csv = selected.find((file) => file.name.toLowerCase().endsWith('.csv')) ?? null;
-    activeListingsFile = csv;
-    activeListingsError = selected.length && !csv ? 'Choose a CSV export.' : null;
-    activeListingsResult = null;
+  const activeAge = $derived(daysSince(data.sync.latestActiveImport?.importedAt));
+  const transactionAge = $derived(daysSince(data.sync.transactionDataThrough));
+
+  const activeState = $derived(freshness(activeAge, 7, 14));
+  const transactionState = $derived(freshness(transactionAge, 3, 7));
+
+  const overallState = $derived.by(() => {
+    if (
+      activeState === 'missing' ||
+      activeState === 'stale' ||
+      transactionState === 'missing' ||
+      transactionState === 'stale'
+    ) return 'attention' as const;
+
+    if (activeState === 'due' || transactionState === 'due') {
+      return 'due' as const;
+    }
+
+    return 'current' as const;
+  });
+
+  const recommendedFeed = $derived.by(() => {
+    if (transactionState !== 'current') return 'transactions' as const;
+    if (activeState !== 'current') return 'inventory' as const;
+    return null;
+  });
+
+  function chooseCsv(selected: File[]) {
+    return selected.find((file) => file.name.toLowerCase().endsWith('.csv')) ?? null;
   }
 
-  function handleActiveListingsDrop(event: DragEvent) {
+  function takeTransactionFile(selected: File[]) {
+    transactionFile = chooseCsv(selected);
+    transactionError = selected.length && !transactionFile ? 'Choose a CSV report.' : null;
+    transactionResult = null;
+  }
+
+  function takeActiveFile(selected: File[]) {
+    activeFile = chooseCsv(selected);
+    activeError = selected.length && !activeFile ? 'Choose a CSV report.' : null;
+    activeResult = null;
+  }
+
+  async function submitTransactions(event: SubmitEvent) {
     event.preventDefault();
-    activeListingsDragging = false;
-    takeActiveListingsFile([...(event.dataTransfer?.files ?? [])]);
-  }
+    if (!transactionFile || transactionImporting) return;
 
-  async function submitActiveListings(event: SubmitEvent) {
-    event.preventDefault();
-    if (!activeListingsFile || activeListingsImporting) return;
-
-    activeListingsImporting = true;
-    activeListingsError = null;
-    activeListingsResult = null;
+    transactionImporting = true;
+    transactionError = null;
+    transactionResult = null;
 
     const form = new FormData();
-    form.append('file', activeListingsFile);
+    form.append('file', transactionFile);
+
+    try {
+      const response = await fetch('/api/ebay/import-transactions', {
+        method: 'POST',
+        body: form
+      });
+
+      const payload = await response.json() as
+        | (EbayImportResult & { error?: string })
+        | { error?: string };
+
+      if (!response.ok || !('rowsImported' in payload)) {
+        transactionError = payload.error ?? 'Transaction report import failed.';
+        return;
+      }
+
+      transactionResult = payload as EbayImportResult;
+      await invalidateAll();
+    } catch {
+      transactionError = 'Sellquity could not upload this Transaction report.';
+    } finally {
+      transactionImporting = false;
+    }
+  }
+
+  async function submitActive(event: SubmitEvent) {
+    event.preventDefault();
+    if (!activeFile || activeImporting) return;
+
+    activeImporting = true;
+    activeError = null;
+    activeResult = null;
+
+    const form = new FormData();
+    form.append('file', activeFile);
 
     try {
       const response = await fetch('/api/ebay/import-active-listings', {
@@ -170,50 +261,41 @@
         | { error?: string };
 
       if (!response.ok || !('listingsImported' in payload)) {
-        activeListingsError = payload.error ?? 'Active listings import failed.';
+        activeError = payload.error ?? 'Active inventory import failed.';
         return;
       }
 
-      activeListingsResult = payload as EbayActiveListingsImportResult;
+      activeResult = payload as EbayActiveListingsImportResult;
       await invalidateAll();
     } catch {
-      activeListingsError = 'Sellquity could not upload this active listings report.';
+      activeError = 'Sellquity could not upload this active listings report.';
     } finally {
-      activeListingsImporting = false;
+      activeImporting = false;
     }
   }
 
-  function takeFiles(selected: File[]) {
-    const csvs = selected.filter((file) => file.name.toLowerCase().endsWith('.csv'));
-    files = marketplace === 'ebay' ? csvs.slice(0, 1) : csvs;
-    resetResults();
-
-    if (selected.length && !csvs.length) {
-      error = 'Choose a CSV export.';
-    }
+  function takeWhatnotFiles(selected: File[]) {
+    whatnotFiles = selected.filter((file) => file.name.toLowerCase().endsWith('.csv'));
+    whatnotError = selected.length && !whatnotFiles.length ? 'Choose CSV exports.' : null;
+    whatnotResult = null;
+    ledgerResult = null;
   }
 
-  function handleDrop(event: DragEvent) {
+  async function submitWhatnot(event: SubmitEvent) {
     event.preventDefault();
-    dragging = false;
-    takeFiles([...(event.dataTransfer?.files ?? [])]);
-  }
+    if (!whatnotFiles.length || whatnotImporting) return;
 
-  async function submit(event: SubmitEvent) {
-    event.preventDefault();
-    if (!files.length || importing) return;
-
-    importing = true;
-    resetResults();
+    whatnotImporting = true;
+    whatnotError = null;
+    whatnotResult = null;
+    ledgerResult = null;
 
     const form = new FormData();
-    for (const file of files) form.append('file', file);
+    for (const file of whatnotFiles) form.append('file', file);
 
-    const endpoint = marketplace === 'ebay'
-      ? '/api/ebay/import-transactions'
-      : whatnotMode === 'ledger'
-        ? '/api/whatnot/import-ledger'
-        : '/api/whatnot/import-orders';
+    const endpoint = whatnotMode === 'ledger'
+      ? '/api/whatnot/import-ledger'
+      : '/api/whatnot/import-orders';
 
     try {
       const response = await fetch(endpoint, {
@@ -222,422 +304,439 @@
       });
 
       const payload = await response.json() as
-        | (EbayImportResult & { error?: string })
         | (WhatnotImportResult & { error?: string })
         | (WhatnotLedgerResult & { error?: string });
 
       if (!response.ok) {
-        error = payload.error ?? 'Import failed.';
+        whatnotError = payload.error ?? 'Whatnot import failed.';
         return;
       }
 
-      if (marketplace === 'ebay') {
-        ebayResult = payload as EbayImportResult;
-        await invalidateAll();
-      } else if (whatnotMode === 'ledger') {
+      if (whatnotMode === 'ledger') {
         ledgerResult = payload as WhatnotLedgerResult;
       } else {
         whatnotResult = payload as WhatnotImportResult;
       }
     } catch {
-      error = 'Sellquity could not upload this report. Try the export again.';
+      whatnotError = 'Sellquity could not upload these Whatnot reports.';
     } finally {
-      importing = false;
+      whatnotImporting = false;
     }
   }
-
-  const pickerLabel = $derived(
-    marketplace === 'ebay'
-      ? 'eBay Transaction report CSV'
-      : whatnotMode === 'ledger'
-        ? 'Whatnot Ledger CSV'
-        : 'Whatnot Weekly Orders Report CSV'
-  );
-
-  const importLabel = $derived(
-    marketplace === 'ebay'
-      ? 'Import eBay report'
-      : whatnotMode === 'ledger'
-        ? 'Import Whatnot ledger'
-        : 'Import Whatnot orders'
-  );
 </script>
 
 <svelte:head>
-  <title>eBay data import · Sellquity</title>
+  <title>Data sync · Sellquity</title>
   <meta
     name="description"
-    content="Import eBay Seller Hub transaction reports into Sellquity sales, inventory, fees, shipping, payouts, COGS, and profit."
+    content="Keep Sellquity current with eBay Seller Hub active inventory and Transaction report imports."
   />
 </svelte:head>
 
-<div class="import-shell">
-  <header class="topbar">
-    <a class="back" href="/"><ArrowLeft size={16} /> Sellquity</a>
-    <span class="mode-pill"><FileSpreadsheet size={14} /> DATA &amp; IMPORTS</span>
+<div class="sync-shell">
+  <header class="sync-topbar">
+    <a href="/"><ArrowLeft size={16} /> Sellquity</a>
+    <span><FileSpreadsheet size={14} /> DATA SYNC</span>
   </header>
 
   <main>
-    <section class="hero">
-      <div class="hero-copy">
+    <section class="sync-hero">
+      <div>
         <span class="eyebrow">EBAY · SELLER HUB</span>
-        <h1>Your eBay accounting sync.<br /><em>No API required.</em></h1>
+        <h1>Keep Sellquity current.</h1>
         <p>
-          Until direct eBay access is available, the official Transaction report is Sellquity's
-          normal data feed—not a fallback. Drop it here and Sellquity reconciles the money trail
-          and closes sold inventory by durable identity.
+          Two official eBay reports keep the whole system aligned: one tells Sellquity
+          what is live, the other tells it what happened to the money.
         </p>
-
-        <div class="flow">
-          <span><b>1</b><small>Export</small><strong>Seller Hub report</strong></span>
-          <i>→</i>
-          <span><b>2</b><small>Import</small><strong>Drop CSV</strong></span>
-          <i>→</i>
-          <span><b>3</b><small>Reconcile</small><strong>Profit + inventory</strong></span>
-        </div>
       </div>
 
-      <aside class="what-updates">
-        <span class="eyebrow">ONE FILE UPDATES</span>
-        <div><ReceiptText size={17} /><span><strong>Sales &amp; fees</strong><small>Orders and marketplace charges</small></span></div>
-        <div><PackageCheck size={17} /><span><strong>Shipping labels</strong><small>Seller-paid postage</small></span></div>
-        <div><WalletCards size={17} /><span><strong>Payout trail</strong><small>Recorded, never double-counted as P&amp;L</small></span></div>
-        <div><Tag size={17} /><span><strong>Inventory status</strong><small>Item ID / listing ID / SKU → Sold</small></span></div>
-      </aside>
+      <div class:attention={overallState === 'attention'} class:due={overallState === 'due'} class="sync-status">
+        <span class="status-icon"><Check size={22} /></span>
+        <span>
+          <small>SYNC STATUS</small>
+          <strong>
+            {#if overallState === 'current'}
+              eBay data is current
+            {:else if overallState === 'due'}
+              A refresh is coming due
+            {:else}
+              Sellquity needs fresh eBay data
+            {/if}
+          </strong>
+          <em>
+            {#if overallState === 'current'}
+              Nothing is waiting on a newer report.
+            {:else if recommendedFeed === 'transactions'}
+              Refresh the Transaction report first.
+            {:else}
+              Refresh the active inventory snapshot.
+            {/if}
+          </em>
+        </span>
+
+        {#if recommendedFeed}
+          <a href={recommendedFeed === 'transactions' ? '#transactions' : '#inventory-snapshot'}>
+            Refresh now <ChevronRight size={15} />
+          </a>
+        {/if}
+      </div>
     </section>
 
-    <section class="work-grid">
-      <article class="import-card">
-        <div class="card-heading">
+    <section class="feed-grid" aria-label="eBay data feeds">
+      <article class="feed-card">
+        <div class="feed-icon"><ReceiptText size={20} /></div>
+        <div class="feed-copy">
+          <span>TRANSACTION REPORT</span>
+          <strong>
+            {#if data.sync.transactionDataThrough}
+              Data through {shortDate(data.sync.transactionDataThrough)}
+            {:else}
+              No transaction coverage yet
+            {/if}
+          </strong>
+          <small>
+            {#if data.sync.latestTransactionImport}
+              Last imported {shortDate(data.sync.latestTransactionImport.importedAt)}
+            {:else}
+              Import your first Payments report
+            {/if}
+          </small>
+        </div>
+        <span class={`state-pill ${transactionState}`}>{stateLabel(transactionState)}</span>
+      </article>
+
+      <article class="feed-card">
+        <div class="feed-icon"><PackageCheck size={20} /></div>
+        <div class="feed-copy">
+          <span>ACTIVE INVENTORY</span>
+          <strong>{data.sync.activeListingsCount} active eBay listing{data.sync.activeListingsCount === 1 ? '' : 's'}</strong>
+          <small>
+            {#if data.sync.latestActiveImport}
+              Snapshot imported {shortDate(data.sync.latestActiveImport.importedAt)}
+            {:else}
+              Import your current listing snapshot
+            {/if}
+          </small>
+        </div>
+        <span class={`state-pill ${activeState}`}>{stateLabel(activeState)}</span>
+      </article>
+    </section>
+
+    <section class="import-grid">
+      <article id="transactions" class="import-panel primary-feed">
+        <div class="panel-head">
+          <span class="step">01</span>
           <div>
-            <span class="eyebrow">IMPORT NOW</span>
-            <h2>eBay Transaction report</h2>
+            <span class="eyebrow">MONEY + SALES</span>
+            <h2>Transaction report</h2>
+            <p>
+              Seller Hub → <strong>Payments</strong> → Reports → Transaction report.
+              This updates sales, fees, labels, payouts and sold inventory.
+            </p>
           </div>
-          <span class="safe-pill"><Check size={13} /> Duplicate-safe</span>
+          <span class="safe"><Check size={13} /> Duplicate-safe</span>
         </div>
 
-        <div class="report-note">
-          <strong>Use the Transaction report exported from eBay Seller Hub.</strong>
-          Sellquity uses the Custom label as your SKU when available. If you entered the eBay Item ID
-          during Listing Prep, that identity takes priority.
-        </div>
-
-        <form onsubmit={submit}>
+        <form onsubmit={submitTransactions}>
           <label
-            class:dragging
+            class:dragging={transactionDragging}
             class="dropzone"
             ondragenter={(event) => {
               event.preventDefault();
-              dragging = true;
+              transactionDragging = true;
             }}
             ondragover={(event) => {
               event.preventDefault();
-              dragging = true;
+              transactionDragging = true;
             }}
-            ondragleave={() => dragging = false}
-            ondrop={handleDrop}
+            ondragleave={() => transactionDragging = false}
+            ondrop={(event) => {
+              event.preventDefault();
+              transactionDragging = false;
+              takeTransactionFile([...(event.dataTransfer?.files ?? [])]);
+            }}
           >
             <input
-              class="file-input"
               type="file"
               accept=".csv,text/csv"
-              onchange={(event) => takeFiles([...(event.currentTarget.files ?? [])])}
+              onchange={(event) => takeTransactionFile([...(event.currentTarget.files ?? [])])}
             />
-            <span class="upload-icon"><CloudUpload size={29} /></span>
 
-            {#if files.length}
-              <span class="file-selected">
-                <small>READY TO IMPORT</small>
-                <strong>{files[0].name}</strong>
-                <em>{(files[0].size / 1024).toFixed(1)} KB</em>
+            <CloudUpload size={24} />
+
+            {#if transactionFile}
+              <span>
+                <small>READY</small>
+                <strong>{transactionFile.name}</strong>
+                <em>{(transactionFile.size / 1024).toFixed(1)} KB</em>
               </span>
             {:else}
-              <span class="drop-copy">
-                <strong>Drop your eBay CSV here</strong>
-                <small>or click to choose the Transaction report</small>
+              <span>
+                <strong>Drop Transaction report</strong>
+                <small>or click to choose the CSV</small>
               </span>
             {/if}
           </label>
 
-          <button class="import-button" disabled={!files.length || importing}>
-            {#if importing}<RefreshCw class="spin" size={17} />{/if}
-            {importing ? 'Reconciling eBay data…' : importLabel}
+          <button class="import-button" disabled={!transactionFile || transactionImporting}>
+            {#if transactionImporting}<RefreshCw class="spin" size={17} />{:else}<ReceiptText size={17} />{/if}
+            {transactionImporting ? 'Reconciling…' : 'Import transactions'}
           </button>
         </form>
 
-        {#if error}
-          <div class="message error"><AlertTriangle size={18} /><span>{error}</span></div>
+        {#if transactionError}
+          <div class="message error"><AlertTriangle size={17} /><span>{transactionError}</span></div>
         {/if}
 
-        {#if ebayResult}
-          <div class="message success">
-            <div class="success-head">
-              <span class="success-icon"><Check size={19} /></span>
+        {#if transactionResult}
+          <div class="result-card">
+            <div class="result-head">
+              <span><Check size={17} /></span>
               <div>
-                <strong>eBay import complete.</strong>
-                <small>{ebayResult.rowsImported} report rows reconciled</small>
+                <strong>Transaction sync complete</strong>
+                <small>{transactionResult.rowsImported} rows reconciled</small>
               </div>
             </div>
 
-            <div class="stats">
-              <span><b>{ebayResult.ordersImported}</b><small>order rows</small></span>
-              <span><b>{ebayResult.sellingFeesImported}</b><small>selling fees</small></span>
-              <span><b>{ebayResult.shippingLabelsImported}</b><small>shipping labels</small></span>
-              <span><b>{ebayResult.payoutsImported}</b><small>payouts</small></span>
+            <div class="result-grid">
+              <span><small>Orders</small><b>{transactionResult.ordersImported}</b></span>
+              <span><small>Fees</small><b>{transactionResult.sellingFeesImported}</b></span>
+              <span><small>Labels</small><b>{transactionResult.shippingLabelsImported}</b></span>
+              <span><small>Inventory matched</small><b>{transactionResult.inventoryMatched}</b></span>
             </div>
 
-            <div class="inventory-reconcile">
-              <div>
-                <Tag size={18} />
-                <span>
-                  <strong>{ebayResult.inventoryMatched} existing inventory match{ebayResult.inventoryMatched === 1 ? '' : 'es'}</strong>
-                  <small>Matched by eBay Item ID, tracked listing ID, or exact SKU/custom label.</small>
-                </span>
-              </div>
-              <div>
-                <PackageCheck size={18} />
-                <span>
-                  <strong>{ebayResult.listingsEnded} live listing{ebayResult.listingsEnded === 1 ? '' : 's'} closed</strong>
-                  <small>Matched Sellquity inventory moved to Sold automatically.</small>
-                </span>
-              </div>
-              <div>
-                <WalletCards size={18} />
-                <span>
-                  <strong>{ebayResult.cogsPreserved} matched COGS value{ebayResult.cogsPreserved === 1 ? '' : 's'} preserved</strong>
-                  <small>Purchase cost, source, storage location, and SKU stay attached to your item.</small>
-                </span>
-              </div>
-            </div>
-
-            {#if ebayResult.inventoryCreated}
-              <p class="result-note">
-                {ebayResult.inventoryCreated} sale{ebayResult.inventoryCreated === 1 ? '' : 's'} had no
-                existing Sellquity inventory identity, so historical Sold records were created.
-              </p>
-            {/if}
-
-            {#if ebayResult.unallocatedTransactions}
-              <p class="warning">
-                <AlertTriangle size={15} />
-                {ebayResult.unallocatedTransactions} account-level adjustment{ebayResult.unallocatedTransactions === 1 ? '' : 's'}
-                could not be tied to an order. They were retained in Accounting.
+            {#if transactionResult.unallocatedTransactions}
+              <p class="result-warning">
+                <AlertTriangle size={14} />
+                {transactionResult.unallocatedTransactions} account-level adjustment{transactionResult.unallocatedTransactions === 1 ? '' : 's'} retained in Accounting.
               </p>
             {/if}
 
             <div class="result-links">
-              <a class="primary-link" href="/">Open dashboard →</a>
-              <a href="/cogs">Review COGS →</a>
-              <a href="/listing-prep">Listing Prep →</a>
+              <a href="/">Overview <ChevronRight size={13} /></a>
+              <a href="/cogs">COGS <ChevronRight size={13} /></a>
             </div>
           </div>
         {/if}
       </article>
 
-      <aside class="side-stack">
-        <section class="history-card">
-          <div class="card-heading compact">
-            <div>
-              <span class="eyebrow">IMPORT HISTORY</span>
-              <h2>Recent eBay reports</h2>
-            </div>
+      <article id="inventory-snapshot" class="import-panel">
+        <div class="panel-head">
+          <span class="step">02</span>
+          <div>
+            <span class="eyebrow">WHAT IS LIVE</span>
+            <h2>Active inventory snapshot</h2>
+            <p>
+              Seller Hub → Reports → Downloads → <strong>Listings</strong> →
+              All active listings. This keeps active inventory and asking prices aligned.
+            </p>
           </div>
-
-          {#if data.recentEbayImports.length}
-            <div class="history-list">
-              {#each data.recentEbayImports as batch}
-                <div class="history-row">
-                  <span class="history-icon"><FileSpreadsheet size={15} /></span>
-                  <span>
-                    <strong>{batch.filename ?? 'eBay Transaction report'}</strong>
-                    <small>{shortDate(batch.importedAt)} · {batch.ordersImported} orders · {batch.transactionsImported} ledger rows</small>
-                  </span>
-                </div>
-              {/each}
-            </div>
-          {:else}
-            <div class="history-empty">
-              <FileSpreadsheet size={22} />
-              <strong>No eBay reports imported yet.</strong>
-              <small>Your first successful import will show here.</small>
-            </div>
-          {/if}
-        </section>
-
-        <section class="identity-card">
-          <span class="eyebrow">THE CLOSED LOOP</span>
-          <h2>Listing Prep now talks to Accounting.</h2>
-          <p>
-            Put the Sellquity SKU in eBay's Custom label field. When that item appears in a
-            Transaction report, Sellquity can link the sale back to your original inventory record,
-            preserve COGS, end the listing, and mark the item Sold.
-          </p>
-          <a href="/listing-prep"><Tag size={15} /> Open Listing Prep</a>
-        </section>
-      </aside>
-    </section>
-
-    <section class="active-listings-import">
-      <div class="active-listings-copy">
-        <span class="eyebrow">CURRENT EBAY INVENTORY</span>
-        <h2>Import All active listings</h2>
-        <p>
-          Seller Hub → Reports → Downloads → <strong>Listings</strong> →
-          <strong>All active listings</strong>. This creates your current Sellquity inventory,
-          listing price, eBay Item ID, and SKU/custom-label identity before transaction history is imported.
-        </p>
-
-        <div class="active-listings-rules">
-          <span><Check size={14} /><strong>Existing SKU preserved</strong><small>Imported labels seed Sellquity's SKU high-water automatically.</small></span>
-          <span><Check size={14} /><strong>Category inferred when possible</strong><small>Known/custom SKU prefixes are used; everything else starts in Other.</small></span>
-          <span><Check size={14} /><strong>No fake acquisition data</strong><small>Purchase cost and sourcing source remain blank until you enter them.</small></span>
         </div>
-      </div>
 
-      <form class="active-listings-form" onsubmit={submitActiveListings}>
-        <label
-          class:dragging={activeListingsDragging}
-          class="active-listings-drop"
-          ondragenter={(event) => {
-            event.preventDefault();
-            activeListingsDragging = true;
-          }}
-          ondragover={(event) => {
-            event.preventDefault();
-            activeListingsDragging = true;
-          }}
-          ondragleave={() => activeListingsDragging = false}
-          ondrop={handleActiveListingsDrop}
-        >
-          <input
-            type="file"
-            accept=".csv,text/csv"
-            onchange={(event) => takeActiveListingsFile([...(event.currentTarget.files ?? [])])}
-          />
-          <CloudUpload size={24} />
-          {#if activeListingsFile}
-            <span><small>READY</small><strong>{activeListingsFile.name}</strong></span>
-          {:else}
-            <span><strong>Drop active listings CSV</strong><small>or click to choose it</small></span>
-          {/if}
-        </label>
+        <form onsubmit={submitActive}>
+          <label
+            class:dragging={activeDragging}
+            class="dropzone"
+            ondragenter={(event) => {
+              event.preventDefault();
+              activeDragging = true;
+            }}
+            ondragover={(event) => {
+              event.preventDefault();
+              activeDragging = true;
+            }}
+            ondragleave={() => activeDragging = false}
+            ondrop={(event) => {
+              event.preventDefault();
+              activeDragging = false;
+              takeActiveFile([...(event.dataTransfer?.files ?? [])]);
+            }}
+          >
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              onchange={(event) => takeActiveFile([...(event.currentTarget.files ?? [])])}
+            />
 
-        <button class="active-listings-button" disabled={!activeListingsFile || activeListingsImporting}>
-          {#if activeListingsImporting}<RefreshCw class="spin" size={16} />{:else}<PackageCheck size={16} />{/if}
-          {activeListingsImporting ? 'Building current inventory…' : 'Import current inventory'}
-        </button>
+            <CloudUpload size={24} />
 
-        {#if activeListingsError}
-          <div class="message error compact-error"><AlertTriangle size={16} /><span>{activeListingsError}</span></div>
+            {#if activeFile}
+              <span>
+                <small>READY</small>
+                <strong>{activeFile.name}</strong>
+                <em>{(activeFile.size / 1024).toFixed(1)} KB</em>
+              </span>
+            {:else}
+              <span>
+                <strong>Drop active listings CSV</strong>
+                <small>or click to choose the snapshot</small>
+              </span>
+            {/if}
+          </label>
+
+          <button class="import-button secondary" disabled={!activeFile || activeImporting}>
+            {#if activeImporting}<RefreshCw class="spin" size={17} />{:else}<PackageCheck size={17} />{/if}
+            {activeImporting ? 'Refreshing inventory…' : 'Import active inventory'}
+          </button>
+        </form>
+
+        {#if activeError}
+          <div class="message error"><AlertTriangle size={17} /><span>{activeError}</span></div>
         {/if}
 
-        {#if activeListingsResult}
-          <div class="active-listings-result">
-            <div>
-              <strong>{activeListingsResult.listingsImported} active listing{activeListingsResult.listingsImported === 1 ? '' : 's'} imported</strong>
-              <small>
-                {activeListingsResult.inventoryCreated} new inventory ·
-                {activeListingsResult.inventoryMatched} existing match{activeListingsResult.inventoryMatched === 1 ? '' : 'es'}
-              </small>
+        {#if activeResult}
+          <div class="result-card">
+            <div class="result-head">
+              <span><Check size={17} /></span>
+              <div>
+                <strong>Inventory snapshot complete</strong>
+                <small>{activeResult.listingsImported} active listings imported</small>
+              </div>
             </div>
 
-            <div class="active-result-grid">
-              <span><b>{activeListingsResult.skusObserved}</b><small>SKU sequences observed</small></span>
-              <span><b>{activeListingsResult.categoriesInferred}</b><small>categories inferred</small></span>
-              <span><b>{activeListingsResult.otherCategoryCount}</b><small>started in Other</small></span>
+            <div class="result-grid three">
+              <span><small>Created</small><b>{activeResult.inventoryCreated}</b></span>
+              <span><small>Matched</small><b>{activeResult.inventoryMatched}</b></span>
+              <span><small>Categories inferred</small><b>{activeResult.categoriesInferred}</b></span>
             </div>
 
-            {#if activeListingsResult.ageTrackingStartedNow}
-              <p>
-                Listing age starts today for {activeListingsResult.ageTrackingStartedNow} listing{activeListingsResult.ageTrackingStartedNow === 1 ? '' : 's'}
-                because eBay's standard All active listings report does not include the original start date.
-              </p>
-            {/if}
-
-            {#if activeListingsResult.multiQuantityListings}
-              <p class="warning">
+            {#if activeResult.otherCategoryCount || activeResult.multiQuantityListings}
+              <p class="result-warning">
                 <AlertTriangle size={14} />
-                {activeListingsResult.multiQuantityListings} listing{activeListingsResult.multiQuantityListings === 1 ? '' : 's'} has quantity above 1.
-                Sellquity currently tracks that as one inventory identity with listing quantity.
+                {#if activeResult.otherCategoryCount}
+                  {activeResult.otherCategoryCount} listing{activeResult.otherCategoryCount === 1 ? '' : 's'} started in Other.
+                {/if}
+                {#if activeResult.multiQuantityListings}
+                  {activeResult.multiQuantityListings} multi-quantity listing{activeResult.multiQuantityListings === 1 ? '' : 's'} detected.
+                {/if}
               </p>
             {/if}
 
             <div class="result-links">
-              <a class="primary-link" href="/">Open inventory →</a>
-              <a href="/categories">Review categories →</a>
+              <a href="/">Inventory <ChevronRight size={13} /></a>
+              <a href="/categories">Categories <ChevronRight size={13} /></a>
             </div>
           </div>
         {/if}
-      </form>
+      </article>
     </section>
+
+    <details class="history-panel">
+      <summary>
+        <span>
+          <FileSpreadsheet size={17} />
+          <strong>Recent sync history</strong>
+          <small>{data.sync.history.length} recent import{data.sync.history.length === 1 ? '' : 's'}</small>
+        </span>
+        <ChevronDown size={18} />
+      </summary>
+
+      <div class="history-list">
+        {#if data.sync.history.length}
+          {#each data.sync.history as batch}
+            <div class="history-row">
+              <span class="history-kind">
+                {#if batch.source === 'ebay_csv'}<ReceiptText size={15} />{:else}<PackageCheck size={15} />{/if}
+              </span>
+              <span class="history-copy">
+                <strong>{batch.source === 'ebay_csv' ? 'Transaction report' : 'Active inventory snapshot'}</strong>
+                <small>{batch.filename ?? 'eBay CSV'} · {shortDateTime(batch.importedAt)}</small>
+              </span>
+              <span class="history-detail">
+                {#if batch.source === 'ebay_csv'}
+                  <strong>{batch.rowsImported} rows</strong>
+                  <small>
+                    {#if batch.dataFrom && batch.dataThrough}
+                      {shortDate(batch.dataFrom)} → {shortDate(batch.dataThrough)}
+                    {:else}
+                      {batch.transactionsImported} ledger rows
+                    {/if}
+                  </small>
+                {:else}
+                  <strong>{batch.rowsImported} listings</strong>
+                  <small>snapshot</small>
+                {/if}
+              </span>
+            </div>
+          {/each}
+        {:else}
+          <div class="history-empty">
+            <FileSpreadsheet size={22} />
+            <strong>No sync history yet.</strong>
+            <small>Your successful eBay imports will appear here.</small>
+          </div>
+        {/if}
+      </div>
+    </details>
 
     <details class="other-imports">
       <summary>
-        <span><ShoppingBag size={17} /><strong>Other marketplace imports</strong><small>Whatnot is parked, not deleted</small></span>
+        <span>
+          <ShoppingBag size={17} />
+          <strong>Parked marketplace tools</strong>
+          <small>Whatnot pipelines remain available</small>
+        </span>
         <ChevronDown size={18} />
       </summary>
 
       <div class="other-body">
-        <div class="other-heading">
-          <div>
-            <span class="eyebrow">PARKED MULTI-MARKETPLACE TOOLS</span>
-            <h2>Whatnot CSV pipelines</h2>
-          </div>
-          <div class="marketplace-tabs">
-            <button class:active={marketplace === 'ebay'} type="button" onclick={() => setMarketplace('ebay')}>eBay</button>
-            <button class:active={marketplace === 'whatnot'} type="button" onclick={() => setMarketplace('whatnot')}>Whatnot</button>
-          </div>
+        <div class="whatnot-modes">
+          <button class:active={whatnotMode === 'orders'} type="button" onclick={() => {
+            whatnotMode = 'orders';
+            whatnotFiles = [];
+            whatnotResult = null;
+            ledgerResult = null;
+          }}>
+            <strong>Orders &amp; profit</strong>
+            <small>Weekly Orders Reports</small>
+          </button>
+
+          <button class:active={whatnotMode === 'ledger'} type="button" onclick={() => {
+            whatnotMode = 'ledger';
+            whatnotFiles = [];
+            whatnotResult = null;
+            ledgerResult = null;
+          }}>
+            <strong>Balance &amp; payouts</strong>
+            <small>Ledger export</small>
+          </button>
         </div>
 
-        {#if marketplace === 'ebay'}
-          <p class="other-copy">
-            eBay is the active personal workflow. Use the main importer above for normal Sellquity accounting.
-          </p>
-        {:else}
-          <div class="whatnot-modes">
-            <button class:active={whatnotMode === 'orders'} type="button" onclick={() => setWhatnotMode('orders')}>
-              <strong>Orders &amp; profit</strong><small>Weekly Orders Reports</small>
-            </button>
-            <button class:active={whatnotMode === 'ledger'} type="button" onclick={() => setWhatnotMode('ledger')}>
-              <strong>Balance &amp; payouts</strong><small>Ledger export</small>
-            </button>
+        <form class="whatnot-form" onsubmit={submitWhatnot}>
+          <label>
+            <span>
+              <strong>{whatnotMode === 'ledger' ? 'Whatnot Ledger CSV' : 'Whatnot Weekly Orders Report CSV'}</strong>
+              <small>{whatnotFiles.length ? `${whatnotFiles.length} file${whatnotFiles.length === 1 ? '' : 's'} selected` : 'Choose one or more CSV exports'}</small>
+            </span>
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              multiple
+              onchange={(event) => takeWhatnotFiles([...(event.currentTarget.files ?? [])])}
+            />
+          </label>
+
+          <button disabled={!whatnotFiles.length || whatnotImporting}>
+            {whatnotImporting ? 'Importing…' : 'Import Whatnot data'}
+          </button>
+        </form>
+
+        {#if whatnotResult}
+          <div class="whatnot-result">
+            <strong>Whatnot order import complete.</strong>
+            <span>{whatnotResult.ordersImported} orders · {whatnotResult.feesImported} fees · {whatnotResult.inventoryMatched} SKU matches</span>
           </div>
+        {/if}
 
-          <form class="secondary-form" onsubmit={submit}>
-            <label class="secondary-picker">
-              <span>
-                <strong>{pickerLabel}</strong>
-                <small>{files.length ? `${files.length} file${files.length === 1 ? '' : 's'} selected` : 'Choose one or more CSV exports'}</small>
-              </span>
-              <input
-                type="file"
-                accept=".csv,text/csv"
-                multiple
-                onchange={(event) => takeFiles([...(event.currentTarget.files ?? [])])}
-              />
-            </label>
-            <button class="secondary-import" disabled={!files.length || importing}>
-              {importing ? 'Importing…' : importLabel}
-            </button>
-          </form>
+        {#if ledgerResult}
+          <div class="whatnot-result">
+            <strong>Whatnot Ledger import complete.</strong>
+            <span>{ledgerResult.salesEntries} sales entries · {ledgerResult.tipEntries} tips · {money(ledgerResult.netBalanceChangeCents)} net balance change</span>
+          </div>
+        {/if}
 
-          {#if whatnotResult}
-            <div class="secondary-result">
-              <strong>Whatnot order import complete.</strong>
-              <span>{whatnotResult.ordersImported} orders · {whatnotResult.feesImported} fees · {whatnotResult.inventoryMatched} SKU matches</span>
-            </div>
-          {/if}
-
-          {#if ledgerResult}
-            <div class="secondary-result">
-              <strong>Whatnot Ledger import complete.</strong>
-              <span>{ledgerResult.salesEntries} sales entries · {ledgerResult.tipEntries} tips · {money(ledgerResult.netBalanceChangeCents)} net balance change</span>
-            </div>
-          {/if}
-
-          {#if error}
-            <div class="message error compact-error"><AlertTriangle size={16} /><span>{error}</span></div>
-          {/if}
+        {#if whatnotError}
+          <div class="message error"><AlertTriangle size={16} /><span>{whatnotError}</span></div>
         {/if}
       </div>
     </details>
@@ -648,7 +747,7 @@
   :global(body) {
     margin: 0;
     background:
-      radial-gradient(circle at 72% -18%, #0069e31f 0, transparent 34rem),
+      radial-gradient(circle at 70% -15%, #0069e317 0, transparent 34rem),
       #050b14;
     color: #f4f8ff;
     font-family: "Arial Narrow", "Roboto Condensed", Inter, ui-sans-serif, system-ui, sans-serif;
@@ -656,666 +755,831 @@
 
   * { box-sizing: border-box; }
 
-  .import-shell { min-height: 100vh; }
-  .topbar {
-    height: 64px;
+  .sync-shell { min-height: 100vh; }
+
+  .sync-topbar {
+    min-height: 66px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 max(22px, calc((100vw - 1180px) / 2));
+    gap: 18px;
+    padding: 10px max(22px, calc((100vw - 1320px) / 2));
     border-bottom: 1px solid #17304a;
-    background: #07111bd9;
+    background: #06101bd9;
     backdrop-filter: blur(14px);
   }
 
-  .back, .mode-pill {
+  .sync-topbar a,
+  .sync-topbar > span {
     display: inline-flex;
     align-items: center;
     gap: 7px;
-    text-decoration: none;
   }
 
-  .back { color: #91a8bc; font-size: .78rem; font-weight: 850; }
-  .back:hover { color: #01d0e9; }
-  .mode-pill {
-    border: 1px solid #1d4866;
+  .sync-topbar a {
+    color: #9ab0c2;
+    font-size: .82rem;
+    font-weight: 850;
+  }
+
+  .sync-topbar a:hover { color: #01d0e9; }
+
+  .sync-topbar > span {
+    border: 1px solid #1c4a62;
     border-radius: 999px;
     padding: 6px 10px;
-    color: #61e7d3;
-    background: #09202b;
-    font: 800 .66rem "SFMono-Regular", Consolas, monospace;
-    letter-spacing: .08em;
+    color: #68e4d5;
+    background: #08212b;
+    font: 800 .64rem "SFMono-Regular", Consolas, monospace;
+    letter-spacing: .07em;
   }
 
   main {
-    width: min(1180px, calc(100% - 36px));
+    width: min(1320px, calc(100% - 42px));
     margin: 0 auto;
-    padding: 54px 0 80px;
-  }
-
-  .hero {
-    display: grid;
-    grid-template-columns: minmax(0, 1.5fr) minmax(300px, .72fr);
-    gap: 28px;
-    align-items: end;
-    margin-bottom: 24px;
+    padding: 46px 0 82px;
   }
 
   .eyebrow {
     color: #01d4a5;
-    font: 850 .68rem "SFMono-Regular", Consolas, monospace;
-    letter-spacing: .14em;
+    font: 850 .7rem "SFMono-Regular", Consolas, monospace;
+    letter-spacing: .12em;
+  }
+
+  .sync-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(360px, .62fr);
+    gap: 42px;
+    align-items: end;
+    margin-bottom: 24px;
   }
 
   h1 {
-    margin: 9px 0 15px;
-    max-width: 810px;
-    font-size: clamp(2.2rem, 5.2vw, 4.6rem);
-    line-height: .94;
+    margin: 8px 0 10px;
+    font-size: clamp(2.7rem, 5.5vw, 5rem);
+    line-height: .92;
     letter-spacing: -.055em;
   }
 
-  h1 em {
-    color: #01d0e9;
-    font-style: normal;
-  }
-
-  h2 { margin: 5px 0 0; letter-spacing: -.025em; }
-  .hero-copy > p {
-    max-width: 760px;
+  .sync-hero > div:first-child > p {
+    max-width: 720px;
     margin: 0;
-    color: #8da0ba;
+    color: #849aad;
+    font-size: .92rem;
     line-height: 1.65;
-    font-size: .91rem;
   }
 
-  .flow {
-    display: flex;
-    align-items: center;
-    gap: 11px;
-    margin-top: 25px;
-  }
-
-  .flow > span {
-    min-width: 0;
-    display: grid;
-    grid-template-columns: auto 1fr;
-    column-gap: 8px;
-    align-items: center;
-    border: 1px solid #173a54;
-    border-radius: 10px;
-    padding: 9px 11px;
-    background: #081521;
-  }
-
-  .flow b {
-    grid-row: 1 / 3;
-    width: 25px; height: 25px;
-    display: grid; place-items: center;
-    border-radius: 7px;
-    color: #03131a;
-    background: linear-gradient(135deg, #0069e3, #01d0e9 55%, #01d4a5);
-    font-size: .7rem;
-  }
-  .flow small { color: #607c94; font-size: .6rem; text-transform: uppercase; letter-spacing: .08em; }
-  .flow strong { font-size: .74rem; }
-  .flow i { color: #3c6680; font-style: normal; }
-
-  .what-updates {
-    display: grid;
-    gap: 12px;
-    border: 1px solid #193b55;
-    border-radius: 15px;
-    padding: 20px;
-    background: linear-gradient(145deg, #0c1b2b, #08131f);
-    box-shadow: 0 14px 40px #00000030;
-  }
-
-  .what-updates > div {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 10px;
-    align-items: center;
-  }
-
-  .what-updates :global(svg) { color: #01d0e9; }
-  .what-updates div span { display: flex; flex-direction: column; gap: 2px; }
-  .what-updates strong { font-size: .77rem; }
-  .what-updates small { color: #68849c; font-size: .66rem; line-height: 1.35; }
-
-  .work-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1.45fr) minmax(300px, .65fr);
-    gap: 18px;
-    align-items: start;
-  }
-
-  .import-card, .history-card, .identity-card, .other-imports {
-    border: 1px solid #19314f;
-    border-radius: 15px;
-    background: linear-gradient(145deg, #0d1928 0%, #09131f 100%);
-    box-shadow: 0 12px 38px #0000002b;
-  }
-
-  .import-card { padding: 24px; }
-  .card-heading {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 16px;
-  }
-  .card-heading.compact { margin-bottom: 14px; }
-
-  .safe-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    border: 1px solid #155b62;
-    border-radius: 999px;
-    padding: 5px 8px;
-    color: #67ead7;
-    background: #08262b;
-    font-size: .65rem;
-    font-weight: 850;
-  }
-
-  .report-note {
-    margin: 19px 0;
-    border-left: 3px solid #01d0e9;
-    padding: 11px 13px;
-    color: #7f98ad;
-    background: #071521;
-    font-size: .76rem;
-    line-height: 1.5;
-  }
-  .report-note strong { color: #dbeaf5; }
-
-  form { display: grid; gap: 11px; }
-
-  .dropzone {
-    min-height: 190px;
-    display: grid;
-    place-items: center;
-    gap: 11px;
-    border: 1px dashed #256083;
-    border-radius: 14px;
-    padding: 26px;
-    background:
-      radial-gradient(circle at 50% 0%, #0069e312 0, transparent 18rem),
-      #07121d;
-    cursor: pointer;
-    text-align: center;
-    transition: 150ms ease;
-  }
-
-  .dropzone:hover, .dropzone.dragging {
-    border-color: #01d0e9;
-    background:
-      radial-gradient(circle at 50% 0%, #01d0e91b 0, transparent 18rem),
-      #081826;
-    box-shadow: inset 0 0 0 1px #01d0e914;
-  }
-
-  .file-input {
-    position: absolute;
-    width: 1px; height: 1px;
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  .upload-icon {
-    width: 53px; height: 53px;
-    display: grid; place-items: center;
-    border: 1px solid #1e5f7c;
-    border-radius: 14px;
-    color: #68ecdc;
-    background: linear-gradient(145deg, #092944, #09232d);
-  }
-
-  .drop-copy, .file-selected { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-  .drop-copy strong { font-size: .9rem; }
-  .drop-copy small { color: #6d879d; font-size: .73rem; }
-
-  .file-selected small {
-    color: #01d4a5;
-    font: 800 .6rem "SFMono-Regular", Consolas, monospace;
-    letter-spacing: .1em;
-  }
-  .file-selected strong { max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .85rem; }
-  .file-selected em { color: #638096; font-style: normal; font-size: .68rem; }
-
-  .import-button {
-    min-height: 46px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    border: 0;
-    border-radius: 9px;
-    color: #03131a;
-    background: linear-gradient(135deg, #0069e3, #01d0e9 55%, #01d4a5);
-    box-shadow: 0 8px 24px #0069e329;
-    font-weight: 900;
-    cursor: pointer;
-  }
-
-  .import-button:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
-  :global(.spin) { animation: spin .8s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  .message {
-    margin-top: 15px;
-    border-radius: 12px;
-    padding: 15px;
-  }
-  .message.error {
-    display: flex;
-    gap: 9px;
-    align-items: flex-start;
-    border: 1px solid #69343b;
-    color: #ff9ca3;
-    background: #281319;
-    font-size: .76rem;
-  }
-  .message.success {
-    border: 1px solid #165564;
-    background:
-      radial-gradient(circle at 8% 0%, #01d4a50d 0, transparent 15rem),
-      #08202a;
-  }
-
-  .success-head { display: flex; align-items: center; gap: 10px; }
-  .success-icon {
-    width: 37px; height: 37px;
-    display: grid; place-items: center;
-    border-radius: 10px;
-    color: #03131a;
-    background: linear-gradient(135deg, #01d0e9, #01d4a5);
-  }
-  .success-head > div { display: flex; flex-direction: column; gap: 2px; }
-  .success-head strong { font-size: .88rem; }
-  .success-head small { color: #71a4b4; font-size: .68rem; }
-
-  .stats {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 1px;
-    margin-top: 14px;
-    border: 1px solid #174052;
-    border-radius: 9px;
-    overflow: hidden;
-    background: #174052;
-  }
-  .stats span {
-    display: flex; flex-direction: column; gap: 2px;
-    padding: 10px;
-    background: #091a24;
-  }
-  .stats b { font-size: .95rem; }
-  .stats small { color: #64869a; font-size: .61rem; }
-
-  .inventory-reconcile { display: grid; gap: 8px; margin-top: 12px; }
-  .inventory-reconcile > div {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 9px;
-    align-items: center;
-    border: 1px solid #144354;
-    border-radius: 8px;
-    padding: 9px 10px;
-    background: #071923;
-  }
-  .inventory-reconcile :global(svg) { color: #01d4a5; }
-  .inventory-reconcile span { display: flex; flex-direction: column; gap: 1px; }
-  .inventory-reconcile strong { font-size: .72rem; }
-  .inventory-reconcile small { color: #66889b; font-size: .62rem; line-height: 1.35; }
-
-  .result-note {
-    margin: 11px 0 0;
-    color: #7e9bad;
-    font-size: .69rem;
-    line-height: 1.45;
-  }
-  .warning {
-    display: flex;
-    gap: 7px;
-    margin: 11px 0 0;
-    color: #e8bd68;
-    font-size: .69rem;
-    line-height: 1.45;
-  }
-
-  .result-links { display: flex; flex-wrap: wrap; gap: 13px; margin-top: 14px; }
-  .result-links a {
-    color: #82cbd8;
-    text-decoration: none;
-    font-size: .7rem;
-    font-weight: 850;
-  }
-  .result-links a:hover, .result-links .primary-link { color: #01d4a5; }
-
-  .side-stack { display: grid; gap: 18px; }
-  .history-card, .identity-card { padding: 19px; }
-
-  .history-list { display: grid; }
-  .history-row {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    gap: 9px;
-    align-items: center;
-    padding: 10px 0;
-    border-top: 1px solid #173047;
-  }
-  .history-row:first-child { border-top: 0; padding-top: 2px; }
-  .history-icon {
-    width: 30px; height: 30px;
-    display: grid; place-items: center;
-    border-radius: 8px;
-    color: #01d0e9;
-    background: #092335;
-  }
-  .history-row > span:last-child { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-  .history-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .7rem; }
-  .history-row small { color: #607d93; font-size: .6rem; line-height: 1.35; }
-
-  .history-empty {
-    min-height: 150px;
-    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
-    color: #55748b;
-    text-align: center;
-  }
-  .history-empty strong { color: #9bb0c2; font-size: .75rem; }
-  .history-empty small { font-size: .63rem; }
-
-  .identity-card h2 { margin-top: 6px; font-size: 1.05rem; }
-  .identity-card p { color: #7890a5; font-size: .72rem; line-height: 1.55; }
-  .identity-card a {
-    display: inline-flex; align-items: center; gap: 6px;
-    color: #01d4a5;
-    text-decoration: none;
-    font-size: .7rem;
-    font-weight: 850;
-  }
-
-  .other-imports { margin-top: 18px; overflow: hidden; }
-  .other-imports summary {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 16px 18px;
-    cursor: pointer;
-    list-style: none;
-  }
-  .other-imports summary::-webkit-details-marker { display: none; }
-  .other-imports summary > span {
-    display: grid;
-    grid-template-columns: auto auto;
-    align-items: center;
-    column-gap: 8px;
-  }
-  .other-imports summary strong { font-size: .77rem; }
-  .other-imports summary small {
-    grid-column: 2;
-    color: #617d93;
-    font-size: .61rem;
-  }
-  .other-imports[open] summary { border-bottom: 1px solid #19314f; }
-  .other-imports[open] summary > :global(svg:last-child) { transform: rotate(180deg); }
-  .other-body { padding: 18px; }
-  .other-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 15px; }
-  .other-copy { color: #7890a5; font-size: .73rem; }
-
-  .marketplace-tabs, .whatnot-modes { display: flex; gap: 6px; }
-  .marketplace-tabs button, .whatnot-modes button {
-    border: 1px solid #24465f;
-    border-radius: 8px;
-    color: #8da3b5;
-    background: #09141f;
-    cursor: pointer;
-  }
-  .marketplace-tabs button { padding: 7px 11px; font-size: .68rem; }
-  .marketplace-tabs button.active {
-    border-color: transparent;
-    color: #03131a;
-    background: linear-gradient(135deg, #0069e3, #01d0e9 55%, #01d4a5);
-  }
-
-  .whatnot-modes { margin: 15px 0 11px; }
-  .whatnot-modes button { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px; }
-  .whatnot-modes button.active { border-color: #17788f; background: #09202a; }
-  .whatnot-modes strong { font-size: .71rem; }
-  .whatnot-modes small { color: #617b90; font-size: .6rem; }
-
-  .secondary-form { grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; }
-  .secondary-picker {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    border: 1px solid #24455e;
-    border-radius: 9px;
-    padding: 10px 12px;
-    background: #07131e;
-    cursor: pointer;
-  }
-  .secondary-picker > span { display: flex; flex-direction: column; gap: 2px; }
-  .secondary-picker strong { font-size: .7rem; }
-  .secondary-picker small { color: #607c91; font-size: .61rem; }
-  .secondary-picker input { max-width: 230px; color: #7894a8; font-size: .62rem; }
-
-  .secondary-import {
-    border: 1px solid #1d6078;
-    border-radius: 9px;
-    padding: 0 14px;
-    color: #62e6d4;
-    background: #09222b;
-    font-weight: 850;
-    cursor: pointer;
-  }
-  .secondary-import:disabled { opacity: .45; cursor: not-allowed; }
-
-  .secondary-result {
-    display: flex; justify-content: space-between; gap: 15px;
-    margin-top: 11px;
-    border: 1px solid #18515c;
-    border-radius: 8px;
-    padding: 9px 11px;
-    color: #82d9d1;
-    background: #082229;
-    font-size: .67rem;
-  }
-  .compact-error { margin-top: 11px; }
-
-  @media (max-width: 900px) {
-    .hero, .work-grid { grid-template-columns: 1fr; }
-    .what-updates { grid-template-columns: repeat(2, 1fr); }
-    .flow { flex-wrap: wrap; }
-    .flow i { display: none; }
-  }
-
-  @media (max-width: 620px) {
-    main { width: min(100% - 24px, 1180px); padding-top: 32px; }
-    .topbar { padding: 0 14px; }
-    .mode-pill { display: none; }
-    .what-updates { grid-template-columns: 1fr; }
-    .stats { grid-template-columns: repeat(2, 1fr); }
-    .other-heading, .secondary-result { align-items: stretch; flex-direction: column; }
-    .secondary-form { grid-template-columns: 1fr; }
-    .secondary-picker { align-items: flex-start; flex-direction: column; }
-  }
-
-
-  .active-listings-import {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(390px, .75fr);
-    gap: 22px;
-    margin-top: 18px;
-    border: 1px solid #19314f;
-    border-radius: 15px;
-    padding: 21px;
-    background:
-      radial-gradient(circle at 0% 0%, #0069e311 0, transparent 22rem),
-      linear-gradient(145deg, #0d1928, #09131f);
-    box-shadow: 0 12px 38px #0000002b;
-  }
-
-  .active-listings-copy h2 {
-    margin: 6px 0 8px;
-    font-size: 1.18rem;
-  }
-
-  .active-listings-copy > p {
-    margin: 0;
-    color: #8199ad;
-    font-size: .73rem;
-    line-height: 1.55;
-  }
-
-  .active-listings-copy > p strong { color: #dcebf5; }
-
-  .active-listings-rules {
-    display: grid;
-    gap: 7px;
-    margin-top: 14px;
-  }
-
-  .active-listings-rules > span {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    column-gap: 8px;
-    align-items: center;
-  }
-
-  .active-listings-rules > span :global(svg) {
-    grid-row: 1 / 3;
-    color: #01d4a5;
-  }
-
-  .active-listings-rules strong { font-size: .67rem; }
-  .active-listings-rules small { color: #68859a; font-size: .59rem; line-height: 1.35; }
-
-  .active-listings-form {
-    align-content: start;
-  }
-
-  .active-listings-drop {
+  .sync-status {
     min-height: 112px;
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    gap: 11px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 12px;
     align-items: center;
-    border: 1px dashed #256083;
-    border-radius: 11px;
+    border: 1px solid #176051;
+    border-radius: 13px;
     padding: 16px;
-    color: #68e8d7;
-    background: #071722;
-    cursor: pointer;
+    background:
+      radial-gradient(circle at 100% 0, #01d4a510, transparent 12rem),
+      #08221f;
   }
 
-  .active-listings-drop.dragging,
-  .active-listings-drop:hover {
-    border-color: #01d0e9;
-    background: #08202b;
+  .sync-status.due {
+    border-color: #65502e;
+    background: #221b11;
   }
 
-  .active-listings-drop input {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    opacity: 0;
-    pointer-events: none;
+  .sync-status.attention {
+    border-color: #65343d;
+    background: #241318;
   }
 
-  .active-listings-drop > span {
+  .status-icon {
+    width: 42px;
+    height: 42px;
+    display: grid;
+    place-items: center;
+    border: 1px solid #1e6c62;
+    border-radius: 10px;
+    color: #6ee6d1;
+    background: #0a302c;
+  }
+
+  .sync-status.due .status-icon {
+    border-color: #755c33;
+    color: #e5b66b;
+    background: #2e2415;
+  }
+
+  .sync-status.attention .status-icon {
+    border-color: #753e46;
+    color: #ef939b;
+    background: #31191e;
+  }
+
+  .sync-status > span:nth-child(2) {
     min-width: 0;
     display: flex;
     flex-direction: column;
     gap: 3px;
   }
 
-  .active-listings-drop strong {
+  .sync-status small {
+    color: #5f8b87;
+    font: 800 .56rem "SFMono-Regular", Consolas, monospace;
+    letter-spacing: .08em;
+  }
+
+  .sync-status strong { font-size: .9rem; }
+
+  .sync-status em {
+    color: #759493;
+    font-size: .7rem;
+    font-style: normal;
+  }
+
+  .sync-status > a {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: #72decf;
+    font-size: .72rem;
+    font-weight: 850;
+    white-space: nowrap;
+  }
+
+  .feed-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .feed-card {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+    border: 1px solid #19364d;
+    border-radius: 12px;
+    padding: 15px 17px;
+    background: linear-gradient(145deg, #0c1927, #09131f);
+  }
+
+  .feed-icon {
+    width: 39px;
+    height: 39px;
+    display: grid;
+    place-items: center;
+    border: 1px solid #1b5a72;
+    border-radius: 9px;
+    color: #64dce9;
+    background: #092333;
+  }
+
+  .feed-copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .feed-copy > span {
+    color: #5d7a91;
+    font: 850 .55rem "SFMono-Regular", Consolas, monospace;
+    letter-spacing: .08em;
+  }
+
+  .feed-copy strong {
     overflow: hidden;
+    font-size: .86rem;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: #eef9ff;
-    font-size: .73rem;
   }
 
-  .active-listings-drop small {
-    color: #68859a;
-    font-size: .61rem;
+  .feed-copy small {
+    color: #688399;
+    font-size: .68rem;
   }
 
-  .active-listings-button {
-    min-height: 42px;
+  .state-pill {
+    border: 1px solid #315067;
+    border-radius: 999px;
+    padding: 5px 8px;
+    color: #7e96a9;
+    background: #0b1924;
+    font: 850 .54rem "SFMono-Regular", Consolas, monospace;
+    text-transform: uppercase;
+  }
+
+  .state-pill.current {
+    border-color: #176051;
+    color: #66dec8;
+    background: #09231f;
+  }
+
+  .state-pill.due {
+    border-color: #65502e;
+    color: #ddb16b;
+    background: #261e12;
+  }
+
+  .state-pill.stale,
+  .state-pill.missing {
+    border-color: #63363d;
+    color: #e98b94;
+    background: #251419;
+  }
+
+  .import-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    align-items: start;
+  }
+
+  .import-panel {
+    scroll-margin-top: 20px;
+    overflow: hidden;
+    border: 1px solid #19364d;
+    border-radius: 14px;
+    background: linear-gradient(145deg, #0c1927, #09131f);
+  }
+
+  .import-panel.primary-feed {
+    border-color: #1b516b;
+    box-shadow: 0 16px 44px #00000027;
+  }
+
+  .panel-head {
+    min-height: 140px;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: start;
+    border-bottom: 1px solid #173047;
+    padding: 18px;
+  }
+
+  .step {
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    border: 1px solid #1c6078;
+    border-radius: 8px;
+    color: #69e4d3;
+    background: #092533;
+    font: 900 .62rem "SFMono-Regular", Consolas, monospace;
+  }
+
+  .panel-head > div { min-width: 0; }
+
+  .panel-head h2 {
+    margin: 5px 0 7px;
+    font-size: 1.35rem;
+    letter-spacing: -.025em;
+  }
+
+  .panel-head p {
+    margin: 0;
+    color: #7891a5;
+    font-size: .75rem;
+    line-height: 1.55;
+  }
+
+  .panel-head p strong { color: #b9ccd9; }
+
+  .safe {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border: 1px solid #176051;
+    border-radius: 999px;
+    padding: 5px 8px;
+    color: #65dfca;
+    background: #09231f;
+    font: 800 .54rem "SFMono-Regular", Consolas, monospace;
+    white-space: nowrap;
+  }
+
+  .import-panel form {
+    display: grid;
+    gap: 10px;
+    padding: 16px 18px 18px;
+  }
+
+  .dropzone {
+    position: relative;
+    min-height: 150px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    border: 1px dashed #276481;
+    border-radius: 10px;
+    color: #6f99ab;
+    background: #071521;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .14s ease, background .14s ease;
+  }
+
+  .dropzone:hover,
+  .dropzone.dragging {
+    border-color: #01d0e9;
+    background: #08202c;
+  }
+
+  .dropzone input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .dropzone :global(svg) { color: #56d1df; }
+
+  .dropzone > span {
+    max-width: 88%;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .dropzone strong {
+    overflow: hidden;
+    color: #dceaf2;
+    font-size: .8rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .dropzone small {
+    color: #68869a;
+    font-size: .67rem;
+  }
+
+  .dropzone em {
+    color: #59758a;
+    font-size: .6rem;
+    font-style: normal;
+  }
+
+  .dropzone span small:first-child {
+    color: #01d4a5;
+    font: 850 .51rem "SFMono-Regular", Consolas, monospace;
+    letter-spacing: .07em;
+  }
+
+  .import-button {
+    min-height: 43px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 7px;
-    border: 1px solid #197790;
+    border: 0;
     border-radius: 8px;
-    color: #66e7d5;
-    background: #09232c;
+    color: #03131a;
+    background: linear-gradient(135deg, #0069e3, #01d0e9 56%, #01d4a5);
+    font-size: .8rem;
     font-weight: 900;
     cursor: pointer;
   }
 
-  .active-listings-button:disabled {
-    opacity: .42;
+  .import-button.secondary {
+    border: 1px solid #215874;
+    color: #cce4ee;
+    background: #0a2231;
+  }
+
+  .import-button:disabled {
+    opacity: .38;
     cursor: not-allowed;
   }
 
-  .active-listings-result {
-    display: grid;
-    gap: 10px;
-    border: 1px solid #165564;
-    border-radius: 10px;
-    padding: 12px;
-    background: #08212a;
-  }
-
-  .active-listings-result > div:first-child {
+  .message {
     display: flex;
-    flex-direction: column;
-    gap: 2px;
+    align-items: center;
+    gap: 8px;
+    margin: 0 18px 16px;
+    border-radius: 9px;
+    padding: 10px 11px;
+    font-size: .7rem;
   }
 
-  .active-listings-result > div:first-child strong { font-size: .76rem; }
-  .active-listings-result > div:first-child small { color: #6c8b9d; font-size: .61rem; }
+  .message.error {
+    border: 1px solid #663840;
+    color: #efa1a8;
+    background: #281419;
+  }
 
-  .active-result-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    border: 1px solid #174052;
-    border-radius: 8px;
+  .result-card {
+    margin: 0 18px 18px;
     overflow: hidden;
+    border: 1px solid #17605b;
+    border-radius: 10px;
+    background: #08231f;
   }
 
-  .active-result-grid span {
+  .result-head {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    border-bottom: 1px solid #174a48;
+    padding: 11px 12px;
+  }
+
+  .result-head > span {
+    width: 30px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    border-radius: 8px;
+    color: #69e5d0;
+    background: #0b3430;
+  }
+
+  .result-head > div {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    padding: 8px;
-    border-right: 1px solid #174052;
-    background: #071923;
   }
 
-  .active-result-grid span:last-child { border-right: 0; }
-  .active-result-grid b { font-size: .8rem; }
-  .active-result-grid small { color: #64869a; font-size: .55rem; }
+  .result-head strong { font-size: .75rem; }
+  .result-head small { color: #6d9992; font-size: .62rem; }
 
-  .active-listings-result p {
+  .result-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .result-grid.three { grid-template-columns: repeat(3, 1fr); }
+
+  .result-grid span {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    border-right: 1px solid #174a48;
+    padding: 10px 11px;
+  }
+
+  .result-grid span:last-child { border-right: 0; }
+
+  .result-grid small {
+    color: #67928c;
+    font-size: .57rem;
+  }
+
+  .result-grid b { font-size: .82rem; }
+
+  .result-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
     margin: 0;
-    color: #7695a8;
-    font-size: .61rem;
+    border-top: 1px solid #174a48;
+    padding: 9px 11px;
+    color: #d6ad72;
+    background: #231c13;
+    font-size: .62rem;
     line-height: 1.45;
   }
 
-  @media (max-width: 900px) {
-    .active-listings-import {
+  .result-warning :global(svg) { flex: 0 0 auto; }
+
+  .result-links {
+    display: flex;
+    gap: 13px;
+    border-top: 1px solid #174a48;
+    padding: 9px 11px;
+  }
+
+  .result-links a {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    color: #70bccc;
+    font-size: .64rem;
+    font-weight: 850;
+  }
+
+  .history-panel,
+  .other-imports {
+    margin-top: 12px;
+    overflow: visible;
+    border: 1px solid #19364d;
+    border-radius: 12px;
+    background: #08141f;
+  }
+
+  .history-panel > summary,
+  .other-imports > summary {
+    min-height: 58px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 0 16px;
+    list-style: none;
+    cursor: pointer;
+  }
+
+  .history-panel > summary::-webkit-details-marker,
+  .other-imports > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .history-panel > summary > span,
+  .other-imports > summary > span {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+
+  .history-panel > summary strong,
+  .other-imports > summary strong {
+    font-size: .78rem;
+  }
+
+  .history-panel > summary small,
+  .other-imports > summary small {
+    color: #667f93;
+    font-size: .66rem;
+  }
+
+  .history-panel > summary :global(svg),
+  .other-imports > summary :global(svg) {
+    color: #5599ae;
+  }
+
+  details[open] > summary > :global(svg:last-child) {
+    transform: rotate(180deg);
+  }
+
+  .history-list {
+    border-top: 1px solid #173047;
+  }
+
+  .history-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+    border-bottom: 1px solid #173047;
+    padding: 11px 14px;
+  }
+
+  .history-row:last-child { border-bottom: 0; }
+
+  .history-kind {
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    border: 1px solid #1b526b;
+    border-radius: 8px;
+    color: #61cddd;
+    background: #092131;
+  }
+
+  .history-copy,
+  .history-detail {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .history-copy strong,
+  .history-detail strong {
+    font-size: .72rem;
+  }
+
+  .history-copy small,
+  .history-detail small {
+    color: #668297;
+    font-size: .62rem;
+  }
+
+  .history-copy strong,
+  .history-copy small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .history-detail { text-align: right; }
+
+  .history-empty {
+    min-height: 130px;
+    display: grid;
+    place-items: center;
+    align-content: center;
+    gap: 5px;
+    color: #648094;
+  }
+
+  .history-empty strong { color: #a9bfce; font-size: .75rem; }
+  .history-empty small { font-size: .64rem; }
+
+  .other-body {
+    border-top: 1px solid #173047;
+    padding: 14px;
+  }
+
+  .whatnot-modes {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .whatnot-modes button {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    border: 1px solid #1d3e56;
+    border-radius: 8px;
+    padding: 10px;
+    color: #8198aa;
+    background: #07131e;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .whatnot-modes button.active {
+    border-color: #1a6279;
+    color: #dcedf4;
+    background: #092231;
+  }
+
+  .whatnot-modes strong { font-size: .72rem; }
+  .whatnot-modes small { color: #607b90; font-size: .62rem; }
+
+  .whatnot-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  .whatnot-form label {
+    position: relative;
+    min-height: 45px;
+    display: flex;
+    align-items: center;
+    border: 1px solid #1d3e56;
+    border-radius: 8px;
+    padding: 8px 11px;
+    background: #07131e;
+    cursor: pointer;
+  }
+
+  .whatnot-form label > span {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .whatnot-form label strong { font-size: .7rem; }
+  .whatnot-form label small { color: #607c90; font-size: .61rem; }
+
+  .whatnot-form input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .whatnot-form button {
+    min-width: 160px;
+    border: 1px solid #1f5974;
+    border-radius: 8px;
+    color: #c5dde8;
+    background: #0a2231;
+    font-size: .72rem;
+    font-weight: 850;
+  }
+
+  .whatnot-form button:disabled {
+    opacity: .38;
+    cursor: not-allowed;
+  }
+
+  .whatnot-result {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-top: 9px;
+    border: 1px solid #17605b;
+    border-radius: 8px;
+    padding: 9px 10px;
+    color: #6ee1cd;
+    background: #08231f;
+  }
+
+  .whatnot-result strong { font-size: .7rem; }
+  .whatnot-result span { color: #6e9992; font-size: .62rem; }
+
+  :global(.spin) { animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media (max-width: 980px) {
+    .sync-hero,
+    .import-grid {
       grid-template-columns: 1fr;
+    }
+
+    .sync-status {
+      max-width: 650px;
     }
   }
 
+  @media (max-width: 700px) {
+    main { width: min(100% - 24px, 1320px); padding-top: 30px; }
+
+    .sync-topbar { padding-inline: 12px; }
+
+    .sync-hero {
+      gap: 22px;
+    }
+
+    .sync-status {
+      grid-template-columns: auto 1fr;
+    }
+
+    .sync-status > a {
+      grid-column: 2;
+    }
+
+    .feed-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .panel-head {
+      grid-template-columns: auto 1fr;
+      min-height: 0;
+    }
+
+    .safe {
+      grid-column: 2;
+      justify-self: start;
+    }
+
+    .result-grid,
+    .result-grid.three {
+      grid-template-columns: repeat(2, 1fr);
+    }
+
+    .history-row {
+      grid-template-columns: auto 1fr;
+    }
+
+    .history-detail {
+      grid-column: 2;
+      text-align: left;
+    }
+
+    .whatnot-modes,
+    .whatnot-form {
+      grid-template-columns: 1fr;
+    }
+
+    .whatnot-form button {
+      min-height: 42px;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .sync-topbar > span { display: none; }
+
+    h1 { font-size: 2.7rem; }
+
+    .feed-card {
+      grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    .feed-card .state-pill {
+      grid-column: 2;
+      justify-self: start;
+    }
+
+    .result-grid,
+    .result-grid.three {
+      grid-template-columns: 1fr;
+    }
+
+    .result-grid span {
+      border-right: 0;
+      border-bottom: 1px solid #174a48;
+    }
+
+    .result-grid span:last-child { border-bottom: 0; }
+
+    .history-panel > summary small,
+    .other-imports > summary small {
+      display: none;
+    }
+  }
 </style>

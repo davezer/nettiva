@@ -45,6 +45,16 @@ type TransactionDbRow = Omit<AccountingTransactionRow, 'marketplaceProvider'> & 
   marketplaceProvider: string;
 };
 
+type ImportBatchFreshnessRow = {
+  importedAt: string | null;
+  rowsImported: number | null;
+  filename: string | null;
+};
+
+type TransactionThroughRow = {
+  dataThrough: string | null;
+};
+
 export const load: PageServerLoad = async ({ platform, locals }) => {
   const db = platform?.env.DB;
   if (!db) return demoData;
@@ -101,7 +111,10 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
       transactionResult,
       reservationResult,
       sequenceResult,
-      purchaseLotResult
+      purchaseLotResult,
+      activeImportResult,
+      transactionImportResult,
+      transactionThroughResult
     ] = await db.batch([
       db.prepare(`
         SELECT i.id, i.title, i.sku, i.ebay_item_id AS ebayItemId,
@@ -227,6 +240,34 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
         WHERE workspace_id = ?
         ORDER BY COALESCE(purchased_at, created_at) DESC, created_at DESC
         LIMIT 500
+      `).bind(workspaceId),
+      db.prepare(`
+        SELECT
+          imported_at AS importedAt,
+          rows_imported AS rowsImported,
+          filename
+        FROM import_batches
+        WHERE workspace_id = ?
+          AND source = 'ebay_active_csv'
+        ORDER BY imported_at DESC
+        LIMIT 1
+      `).bind(workspaceId),
+      db.prepare(`
+        SELECT
+          imported_at AS importedAt,
+          rows_imported AS rowsImported,
+          filename
+        FROM import_batches
+        WHERE workspace_id = ?
+          AND source = 'ebay_csv'
+        ORDER BY imported_at DESC
+        LIMIT 1
+      `).bind(workspaceId),
+      db.prepare(`
+        SELECT MAX(transaction_date) AS dataThrough
+        FROM financial_transactions
+        WHERE workspace_id = ?
+          AND source = 'ebay_csv'
       `).bind(workspaceId)
     ]);
 
@@ -295,6 +336,30 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
       itemCount: Number(row.itemCount ?? 0)
     }));
 
+    const activeImport = (
+      activeImportResult.results as unknown as ImportBatchFreshnessRow[]
+    )[0] ?? null;
+    const transactionImport = (
+      transactionImportResult.results as unknown as ImportBatchFreshnessRow[]
+    )[0] ?? null;
+    const transactionThrough = (
+      transactionThroughResult.results as unknown as TransactionThroughRow[]
+    )[0] ?? null;
+
+    const importFreshness = {
+      activeListings: {
+        importedAt: activeImport?.importedAt ?? null,
+        rowsImported: Number(activeImport?.rowsImported ?? 0),
+        filename: activeImport?.filename ?? null
+      },
+      transactions: {
+        importedAt: transactionImport?.importedAt ?? null,
+        dataThrough: transactionThrough?.dataThrough ?? null,
+        rowsImported: Number(transactionImport?.rowsImported ?? 0),
+        filename: transactionImport?.filename ?? null
+      }
+    };
+
     const [builtInInventoryCategories, customInventoryCategories] = await Promise.all([
       loadBuiltInInventoryCategories(db, workspaceId),
       loadCustomInventoryCategories(db, workspaceId)
@@ -317,6 +382,7 @@ export const load: PageServerLoad = async ({ platform, locals }) => {
       sales,
       transactions,
       purchaseLots,
+      importFreshness,
       skuReservations,
       skuSequences,
       builtInInventoryCategories,

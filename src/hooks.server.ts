@@ -10,7 +10,11 @@ const PUBLIC_PATHS = new Set([
   '/reset-password',
   '/dev/mailbox',
   '/favicon.ico',
-  '/robots.txt'
+  '/robots.txt',
+
+  // eBay calls this directly from outside Sellquity. It must never require
+  // a Sellquity user session.
+  '/api/ebay/account-deletion'
 ]);
 
 function isAuthPath(pathname: string) {

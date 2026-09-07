@@ -28,8 +28,24 @@
   type InventoryCategoryFilter = 'all' | InventoryCategory;
   type InventoryAgeBucket = 'all' | '0-30' | '31-60' | '61-90' | '90+';
   type InventorySort = 'default' | 'oldest' | 'highest-cost' | 'highest-ask' | 'unlisted-oldest';
+  type InventoryQualityFilter = 'all' | 'unsold' | 'missing-cost' | 'missing-source' | 'missing-location';
+  type SalesQualityFilter = 'all' | 'unmatched';
   type DatePreset = 'all' | '30d' | 'this-month' | 'last-month' | 'ytd' | 'custom';
   type ChannelFilter = 'all' | MarketplaceProvider;
+  type ReportSection = 'performance' | 'inventory' | 'exports';
+  type ActionBucket = 'sell' | 'fix' | 'import' | 'money';
+  type ActionSeverity = 'critical' | 'warning' | 'info';
+  type ActionId =
+    | 'unlisted'
+    | 'stale'
+    | 'missing-sale-cogs'
+    | 'unmatched-sales'
+    | 'missing-inventory-cost'
+    | 'other-category'
+    | 'missing-location'
+    | 'missing-source'
+    | 'active-import'
+    | 'transaction-import';
 
   const PNL_CATEGORIES = new Set<FinanceCategory>([
     'selling_fee', 'shipping_label', 'refund', 'dispute',
@@ -43,6 +59,8 @@
   let inventoryLocationFilter = $state('all');
   let inventoryAgeBucket = $state<InventoryAgeBucket>('all');
   let inventorySort = $state<InventorySort>('default');
+  let inventoryQualityFilter = $state<InventoryQualityFilter>('all');
+  let salesQualityFilter = $state<SalesQualityFilter>('all');
   let selectedInventoryIds = $state<string[]>([]);
   let bulkOpen = $state(false);
   let bulkSaving = $state(false);
@@ -108,6 +126,7 @@
   let channelFilter = $state<ChannelFilter>('ebay');
   let customStart = $state('');
   let customEnd = $state('');
+  let reportSection = $state<ReportSection>('performance');
   let workspaceName = $state('');
 
   $effect(() => {
@@ -268,6 +287,13 @@
     )
   );
 
+  const visibleSales = $derived(
+    filteredSales.filter((sale) =>
+      salesQualityFilter === 'all' ||
+      (salesQualityFilter === 'unmatched' && !sale.inventoryItemId)
+    )
+  );
+
   const metrics = $derived.by(() => {
     const gross = filteredSales.reduce(
       (sum, sale) => sum + sale.salePriceCents + sale.shippingChargedCents,
@@ -405,12 +431,234 @@
   const unlistedInvestment = $derived(
     unlistedItems.reduce((sum, item) => sum + (item.costCents ?? 0), 0)
   );
+
+  const allMissingSaleCosts = $derived(data.sales.filter((sale) => sale.cogsCents == null));
+  const unmatchedSales = $derived(data.sales.filter((sale) => !sale.inventoryItemId));
+  const unsoldMissingCost = $derived(unsoldItems.filter((item) => item.costCents == null));
+  const unsoldOtherCategory = $derived(unsoldItems.filter((item) => item.category === 'other'));
+  const unsoldMissingLocation = $derived(
+    unsoldItems.filter((item) => !item.location?.trim())
+  );
+  const unsoldMissingSource = $derived(
+    unsoldItems.filter((item) => !item.source?.trim())
+  );
+
   function daysSince(value?: string | null) {
     if (!value) return null;
     const timestamp = Date.parse(value);
     if (!Number.isFinite(timestamp)) return null;
     return Math.max(0, Math.floor((Date.now() - timestamp) / 86_400_000));
   }
+
+  function freshnessState(
+    ageDays: number | null,
+    currentThrough: number,
+    dueThrough: number
+  ): 'current' | 'due' | 'stale' | 'missing' {
+    if (ageDays == null) return 'missing';
+    if (ageDays <= currentThrough) return 'current';
+    if (ageDays <= dueThrough) return 'due';
+    return 'stale';
+  }
+
+  const importFreshness = $derived.by(() => {
+    const active = data.importFreshness?.activeListings ?? {
+      importedAt: null,
+      rowsImported: 0,
+      filename: null
+    };
+    const transactions = data.importFreshness?.transactions ?? {
+      importedAt: null,
+      dataThrough: latestEbayDataAt,
+      rowsImported: 0,
+      filename: null
+    };
+
+    const activeAgeDays = daysSince(active.importedAt);
+    const transactionAgeDays = daysSince(transactions.dataThrough ?? latestEbayDataAt);
+
+    return {
+      active: {
+        ...active,
+        ageDays: activeAgeDays,
+        state: freshnessState(activeAgeDays, 7, 14)
+      },
+      transactions: {
+        ...transactions,
+        dataThrough: transactions.dataThrough ?? latestEbayDataAt,
+        ageDays: transactionAgeDays,
+        state: freshnessState(transactionAgeDays, 3, 7)
+      }
+    };
+  });
+
+  const actionQueue = $derived.by(() => {
+    const items: Array<{
+      id: ActionId;
+      bucket: ActionBucket;
+      severity: ActionSeverity;
+      count: number;
+      title: string;
+      detail: string;
+    }> = [];
+
+    if (allMissingSaleCosts.length) {
+      items.push({
+        id: 'missing-sale-cogs',
+        bucket: 'fix',
+        severity: 'critical',
+        count: allMissingSaleCosts.length,
+        title: 'Sold items missing COGS',
+        detail: 'True profit is incomplete until these sale costs are filled in.'
+      });
+    }
+
+    if (unmatchedSales.length) {
+      items.push({
+        id: 'unmatched-sales',
+        bucket: 'fix',
+        severity: 'critical',
+        count: unmatchedSales.length,
+        title: 'Sales not linked to inventory',
+        detail: 'These orders imported without a durable inventory match.'
+      });
+    }
+
+    if (unsoldMissingCost.length) {
+      items.push({
+        id: 'missing-inventory-cost',
+        bucket: 'money',
+        severity: 'warning',
+        count: unsoldMissingCost.length,
+        title: 'Current inventory missing purchase cost',
+        detail: 'Add cost basis now so future sales become true profit automatically.'
+      });
+    }
+
+    if (stale) {
+      items.push({
+        id: 'stale',
+        bucket: 'sell',
+        severity: 'warning',
+        count: stale,
+        title: 'Listings at 90+ days',
+        detail: `${money(staleCogs)} of known COGS is sitting in stale active listings.`
+      });
+    }
+
+    if (unlistedCount) {
+      items.push({
+        id: 'unlisted',
+        bucket: 'sell',
+        severity: 'info',
+        count: unlistedCount,
+        title: 'Inventory waiting to list',
+        detail: `${money(unlistedInvestment)} of known cost basis is not live yet.`
+      });
+    }
+
+    if (unsoldOtherCategory.length) {
+      items.push({
+        id: 'other-category',
+        bucket: 'fix',
+        severity: 'warning',
+        count: unsoldOtherCategory.length,
+        title: 'Current inventory still in Other',
+        detail: 'Recategorize these so category analytics stay useful.'
+      });
+    }
+
+    if (unsoldMissingLocation.length) {
+      items.push({
+        id: 'missing-location',
+        bucket: 'fix',
+        severity: 'info',
+        count: unsoldMissingLocation.length,
+        title: 'Current inventory missing location',
+        detail: 'Give these items a bin or storage location before the pile grows.'
+      });
+    }
+
+    if (unsoldMissingSource.length) {
+      items.push({
+        id: 'missing-source',
+        bucket: 'fix',
+        severity: 'info',
+        count: unsoldMissingSource.length,
+        title: 'Current inventory missing source',
+        detail: 'Source history powers future sourcing and profitability analysis.'
+      });
+    }
+
+    if (importFreshness.active.state !== 'current') {
+      items.push({
+        id: 'active-import',
+        bucket: 'import',
+        severity: importFreshness.active.state === 'stale' || importFreshness.active.state === 'missing'
+          ? 'warning'
+          : 'info',
+        count: 1,
+        title: importFreshness.active.state === 'missing'
+          ? 'Active inventory snapshot not imported'
+          : 'Active inventory snapshot getting old',
+        detail: importFreshness.active.ageDays == null
+          ? 'Import Seller Hub → Listings → All active listings.'
+          : `Last active snapshot was ${importFreshness.active.ageDays} day${importFreshness.active.ageDays === 1 ? '' : 's'} ago.`
+      });
+    }
+
+    if (importFreshness.transactions.state !== 'current') {
+      items.push({
+        id: 'transaction-import',
+        bucket: 'import',
+        severity: importFreshness.transactions.state === 'stale' || importFreshness.transactions.state === 'missing'
+          ? 'warning'
+          : 'info',
+        count: 1,
+        title: importFreshness.transactions.state === 'missing'
+          ? 'Transaction history not imported'
+          : 'Transaction report is due',
+        detail: importFreshness.transactions.ageDays == null
+          ? 'Import the eBay Payments Transaction report.'
+          : `Financial data is through ${importFreshness.transactions.dataThrough ? shortDate(importFreshness.transactions.dataThrough) : 'an unknown date'}.`
+      });
+    }
+
+    const rank: Record<ActionSeverity, number> = {
+      critical: 0,
+      warning: 1,
+      info: 2
+    };
+
+    return items.sort((a, b) => rank[a.severity] - rank[b.severity]);
+  });
+
+  const actionBucketCounts = $derived.by(() => ({
+    sell: actionQueue.filter((item) => item.bucket === 'sell').length,
+    fix: actionQueue.filter((item) => item.bucket === 'fix').length,
+    import: actionQueue.filter((item) => item.bucket === 'import').length,
+    money: actionQueue.filter((item) => item.bucket === 'money').length
+  }));
+
+  const actionHealth = $derived.by(() => {
+    const checks = [
+      allMissingSaleCosts.length === 0,
+      unmatchedSales.length === 0,
+      unsoldMissingCost.length === 0,
+      unsoldOtherCategory.length === 0,
+      unsoldMissingLocation.length === 0,
+      unsoldMissingSource.length === 0,
+      importFreshness.active.state === 'current',
+      importFreshness.transactions.state === 'current'
+    ];
+    const clear = checks.filter(Boolean).length;
+
+    return {
+      clear,
+      total: checks.length,
+      score: Math.round((clear / checks.length) * 100)
+    };
+  });
 
   function matchesActiveAgeBucket(item: InventoryRow) {
     if (inventoryAgeBucket === 'all') return true;
@@ -571,6 +819,16 @@
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
   );
 
+  const inventoryAdvancedFilterCount = $derived(
+    [
+      inventoryCategoryFilter !== 'all',
+      inventoryLocationFilter !== 'all',
+      inventoryQualityFilter !== 'all',
+      inventoryAgeBucket !== 'all',
+      inventorySort !== 'default'
+    ].filter(Boolean).length
+  );
+
   const filteredInventory = $derived.by(() => {
     const rows = data.inventory.filter((item) => {
       const matchesStatus = filter === 'all' || item.status === filter;
@@ -579,8 +837,14 @@
         inventoryLocationFilter === 'all' ||
         (inventoryLocationFilter === '__unset__' ? !item.location : item.location === inventoryLocationFilter);
       const matchesAge = matchesActiveAgeBucket(item);
+      const matchesQuality =
+        inventoryQualityFilter === 'all' ||
+        (inventoryQualityFilter === 'unsold' && item.status !== 'sold') ||
+        (inventoryQualityFilter === 'missing-cost' && item.status !== 'sold' && item.costCents == null) ||
+        (inventoryQualityFilter === 'missing-source' && item.status !== 'sold' && !item.source?.trim()) ||
+        (inventoryQualityFilter === 'missing-location' && item.status !== 'sold' && !item.location?.trim());
       const haystack = `${item.title} ${item.sku ?? ''} ${item.ebayItemId ?? ''} ${inventoryCategoryLabel(item.category)} ${item.location ?? ''} ${item.source ?? ''} ${item.conditionName ?? ''}`.toLowerCase();
-      return matchesStatus && matchesCategory && matchesLocation && matchesAge && haystack.includes(query.toLowerCase());
+      return matchesStatus && matchesCategory && matchesLocation && matchesAge && matchesQuality && haystack.includes(query.toLowerCase());
     });
 
     if (inventorySort === 'oldest') {
@@ -1111,6 +1375,90 @@
 
   function openCogsQueue() {
     window.location.assign('/cogs');
+  }
+
+  function openInventoryAction(
+    quality: InventoryQualityFilter = 'all',
+    category: InventoryCategoryFilter = 'all'
+  ) {
+    query = '';
+    filter = 'all';
+    inventoryCategoryFilter = category;
+    inventoryLocationFilter = 'all';
+    inventoryAgeBucket = 'all';
+    inventorySort = 'default';
+    inventoryQualityFilter = quality;
+    selectedInventoryIds = [];
+    view = 'inventory';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function runAction(action: ActionId) {
+    if (action === 'missing-sale-cogs') {
+      openCogsQueue();
+      return;
+    }
+
+    if (action === 'unmatched-sales') {
+      datePreset = 'all';
+      channelFilter = 'all';
+      salesQualityFilter = 'unmatched';
+      view = 'sales';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    if (action === 'missing-inventory-cost') {
+      openInventoryAction('missing-cost');
+      return;
+    }
+
+    if (action === 'other-category') {
+      openInventoryAction('unsold', 'other');
+      return;
+    }
+
+    if (action === 'missing-location') {
+      openInventoryAction('missing-location');
+      return;
+    }
+
+    if (action === 'missing-source') {
+      openInventoryAction('missing-source');
+      return;
+    }
+
+    if (action === 'stale') {
+      query = '';
+      filter = 'active';
+      inventoryCategoryFilter = 'all';
+      inventoryLocationFilter = 'all';
+      inventoryQualityFilter = 'all';
+      inventoryAgeBucket = '90+';
+      inventorySort = 'oldest';
+      selectedInventoryIds = [];
+      view = 'inventory';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    if (action === 'unlisted') {
+      query = '';
+      filter = 'unlisted';
+      inventoryCategoryFilter = 'all';
+      inventoryLocationFilter = 'all';
+      inventoryQualityFilter = 'all';
+      inventoryAgeBucket = 'all';
+      inventorySort = 'unlisted-oldest';
+      selectedInventoryIds = [];
+      view = 'inventory';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    if (action === 'active-import' || action === 'transaction-import') {
+      window.location.assign('/import');
+    }
   }
 
   function formatSigned(cents: number) {
@@ -1715,7 +2063,83 @@
           </article>
         </section>
 
-        <section class="dashboard-grid ebay-operating-grid">
+        <section class:compact={actionQueue.length === 0} class="panel action-center-panel">
+          <div class="panel-heading action-center-heading">
+            <div>
+              <span class="kicker">ACTION CENTER</span>
+              <h2>{actionQueue.length ? 'Needs your attention' : 'You’re caught up'}</h2>
+            </div>
+            <div class="action-health">
+              <span>
+                <small>DATA HEALTH</small>
+                <strong>{actionHealth.score}%</strong>
+              </span>
+              <em>{actionHealth.clear}/{actionHealth.total} clear</em>
+            </div>
+          </div>
+
+          {#if actionQueue.length}
+            <div class="action-clean-layout">
+              <div class="action-queue-list clean-action-list">
+                {#each actionQueue as action}
+                  <button
+                    type="button"
+                    class:critical={action.severity === 'critical'}
+                    class:warning={action.severity === 'warning'}
+                    class="action-queue-row"
+                    onclick={() => runAction(action.id)}
+                  >
+                    <span class={`action-bucket ${action.bucket}`}>{action.bucket}</span>
+                    <span class="action-queue-copy">
+                      <strong>{action.title}</strong>
+                      <small>{action.detail}</small>
+                    </span>
+                    <span class="action-count">{action.count}</span>
+                    <ChevronRight size={17} />
+                  </button>
+                {/each}
+              </div>
+
+              <aside class="action-feed-summary">
+                <div class="action-feed-head">
+                  <span><FileSpreadsheet size={15} /> eBay data</span>
+                  <a href="/import">Import <ChevronRight size={13} /></a>
+                </div>
+                <div class={`feed-status ${importFreshness.active.state}`}>
+                  <span>
+                    <small>Inventory snapshot</small>
+                    <strong>{importFreshness.active.importedAt ? shortDate(importFreshness.active.importedAt) : 'Not imported'}</strong>
+                  </span>
+                  <b>{importFreshness.active.state}</b>
+                </div>
+                <div class={`feed-status ${importFreshness.transactions.state}`}>
+                  <span>
+                    <small>Transactions through</small>
+                    <strong>{importFreshness.transactions.dataThrough ? shortDate(importFreshness.transactions.dataThrough) : 'Not imported'}</strong>
+                  </span>
+                  <b>{importFreshness.transactions.state}</b>
+                </div>
+              </aside>
+            </div>
+          {:else}
+            <div class="action-clear-row">
+              <span class="action-clear-icon"><Check size={19} /></span>
+              <span class="action-clear-copy">
+                <strong>Nothing needs cleanup right now.</strong>
+                <small>Inventory data is complete and both eBay feeds are current.</small>
+              </span>
+              <span class={`feed-chip ${importFreshness.active.state}`}>
+                Inventory · {importFreshness.active.importedAt ? shortDate(importFreshness.active.importedAt) : 'not imported'}
+              </span>
+              <span class={`feed-chip ${importFreshness.transactions.state}`}>
+                Transactions · {importFreshness.transactions.dataThrough ? shortDate(importFreshness.transactions.dataThrough) : 'not imported'}
+              </span>
+              <a class="action-clear-link" href="/import">Import data <ChevronRight size={14} /></a>
+            </div>
+          {/if}
+        </section>
+
+        <section class="dashboard-grid ebay-operating-grid clean-overview-grid">
           <article class="panel dashboard-sales-panel">
             <div class="panel-heading">
               <div><span class="kicker">RECENT EBAY SALES</span><h2>What sold</h2></div>
@@ -1738,44 +2162,19 @@
             {/if}
           </article>
 
-          <article class="panel attention-panel ebay-action-panel">
-            <div class="panel-heading"><div><span class="kicker">TODAY</span><h2>Next actions</h2></div><PackageCheck size={20} /></div>
-            <a class="dashboard-action-link" href="/listing-prep">
-              <span class="attention-icon blue"><ClipboardCheck size={17} /></span>
-              <span><strong>{unlistedCount} item{unlistedCount === 1 ? '' : 's'} waiting to list</strong><small>{money(unlistedInvestment)} in unlisted inventory COGS</small></span>
-              <ChevronRight size={17} />
-            </a>
-            <button onclick={() => { filter = 'active'; view = 'inventory'; }}>
-              <span class="attention-icon red"><Clock3 size={17} /></span>
-              <span><strong>{stale} listing{stale === 1 ? '' : 's'} over 90 days</strong><small>{stale ? 'Review price, listing, or storage position' : `${avgAge} day average listing age`}</small></span>
-              <ChevronRight size={17} />
-            </button>
-            <button onclick={openCogsQueue}>
-              <span class="attention-icon amber"><Tag size={17} /></span>
-              <span><strong>{dashboardMetrics.missingCogs} eBay sale cost{dashboardMetrics.missingCogs === 1 ? '' : 's'} missing</strong><small>{dashboardMetrics.missingCogs ? 'Finish COGS to lock true profit' : 'Sold inventory is fully costed'}</small></span>
-              <ChevronRight size={17} />
-            </button>
-            <a class="dashboard-action-link" href="/import">
-              <span class="attention-icon teal"><FileSpreadsheet size={17} /></span>
-              <span><strong>{latestEbayDataAt ? `eBay data through ${shortDate(latestEbayDataAt)}` : 'Import your first eBay Transaction report'}</strong><small>{latestEbayDataAt ? 'Drop a newer Seller Hub report when you want to reconcile new sales' : 'Seller Hub CSV is the active Sellquity data feed'}</small></span>
-              <ChevronRight size={17} />
-            </a>
-          </article>
+
         </section>
 
-        <section class="panel inventory-pulse-panel">
+        <section class="panel inventory-pulse-panel listing-watch-panel">
           <div class="panel-heading table-heading">
-            <div><span class="kicker">INVENTORY PULSE</span><h2>What your money is doing</h2></div>
-            <div class="pulse-actions"><a href="/purchase-lots">Purchase lots <ChevronRight size={14} /></a><button onclick={() => view = 'inventory'}>Open inventory <ChevronRight size={14} /></button></div>
-          </div>
-          <div class="inventory-pulse-stats">
-            <span><small>Waiting to list</small><strong>{unlistedCount}</strong><em>{money(unlistedInvestment)} cost basis</em></span>
-            <span><small>Active asking value</small><strong>{money(activeValue)}</strong><em>{activeItems.length} live listing{activeItems.length === 1 ? '' : 's'}</em></span>
-            <span><small>Average listing age</small><strong>{avgAge}d</strong><em>{stale ? `${stale} over 90 days` : 'No stale listings'}</em></span>
-            <span><small>Total inventory invested</small><strong>{money(inventoryCostBasis)}</strong><em>{unsoldItems.length} unsold item{unsoldItems.length === 1 ? '' : 's'}</em></span>
+            <div>
+              <span class="kicker">LISTING WATCH</span>
+              <h2>Oldest active inventory</h2>
+              <p>{activeItems.length} active · {avgAge}d average age · {money(activeValue)} asking value</p>
+            </div>
+            <div class="pulse-actions"><button onclick={() => view = 'inventory'}>Open inventory <ChevronRight size={14} /></button></div>
           </div>
           {#if activeItems.length}
-            <div class="pulse-table-heading"><span>Oldest active listings</span><small>These deserve your attention first.</small></div>
             {@render inventoryTable([...activeItems].sort((a, b) => b.ageDays - a.ageDays).slice(0, 5), false)}
           {:else}
             <div class="empty-state"><strong>No active listings yet.</strong>Move an item through Listing Prep and mark it listed to start tracking asking value and listing age.</div>
@@ -1790,102 +2189,69 @@
           <div><span>Scheduled</span><strong>{scheduledItems.length}</strong><small>future marketplace listings</small></div>
           <div><span>Active listings</span><strong>{activeItems.length}</strong><small>{money(activeValue)} listed</small></div>
           <div><span>Inventory cost basis</span><strong>{money(inventoryCostBasis)}</strong><small>unsold purchase cost</small></div>
-          <div class="inventory-summary-actions">
-            <a class="button secondary" href="/purchase-lots"><ShoppingBag size={17} /> Purchase lots</a>
-            <a class="button secondary" href="/listing-prep"><ClipboardCheck size={17} /> Listing prep</a>
-            <a class="button secondary" href="/categories"><Settings size={17} /> Categories</a>
-            <button class="button secondary" onclick={() => skuManagerOpen = true}><Archive size={17} /> SKU manager</button>
+          <div class="inventory-summary-actions clean-inventory-actions">
+            <details class="inventory-tools-menu">
+              <summary class="button secondary"><Settings size={17} /> Inventory tools <ChevronRight size={15} /></summary>
+              <div class="inventory-tools-popover">
+                <a href="/purchase-lots"><ShoppingBag size={17} /><span><strong>Purchase lots</strong><small>Intake mixed buys and allocate cost.</small></span></a>
+                <a href="/listing-prep"><ClipboardCheck size={17} /><span><strong>Listing prep</strong><small>Move unlisted items toward eBay.</small></span></a>
+                <a href="/categories"><Settings size={17} /><span><strong>Categories</strong><small>Manage taxonomy and SKU defaults.</small></span></a>
+                <button type="button" onclick={() => skuManagerOpen = true}><Archive size={17} /><span><strong>SKU manager</strong><small>Reserve and review durable SKUs.</small></span></button>
+              </div>
+            </details>
             <button class="button primary" onclick={openIntake}><Tag size={17} /> Add inventory</button>
           </div>
         </section>
 
-        <section class="panel inventory-intelligence-panel">
-          <div class="panel-heading table-heading">
+        <section class:quiet={!(unlistedOver30.length || activeItems.some((item) => item.ageDays >= 61))} class="panel inventory-intelligence-panel clean-intelligence-panel">
+          <div class="panel-heading">
             <div>
               <span class="kicker">INVENTORY INTELLIGENCE</span>
-              <h2>Where your money is getting stuck</h2>
+              <h2>{unlistedOver30.length || activeItems.some((item) => item.ageDays >= 61) ? 'Inventory that deserves attention' : 'Inventory is moving cleanly'}</h2>
             </div>
             <span class="inventory-health-score">
               {inventoryHealthSummary.sellThrough.toFixed(0)}% tracked sell-through
             </span>
           </div>
 
-          <div class="inventory-risk-grid">
-            <button type="button" onclick={() => { filter = 'unlisted'; inventoryAgeBucket = 'all'; inventorySort = 'unlisted-oldest'; }}>
-              <span>Unlisted 30+ days</span>
-              <strong>{unlistedOver30.length}</strong>
-              <small>{money(unlistedOver30Cogs)} tied up</small>
-            </button>
-            <button type="button" onclick={() => { filter = 'active'; inventoryAgeBucket = '61-90'; inventorySort = 'oldest'; }}>
-              <span>Active 61–90 days</span>
-              <strong>{activeItems.filter((item) => item.ageDays >= 61 && item.ageDays <= 90).length}</strong>
-              <small>{money(activeItems.filter((item) => item.ageDays >= 61 && item.ageDays <= 90).reduce((sum, item) => sum + (item.costCents ?? 0), 0))} COGS</small>
-            </button>
-            <button class:danger={stale > 0} type="button" onclick={() => { filter = 'active'; inventoryAgeBucket = '90+'; inventorySort = 'oldest'; }}>
-              <span>Dead-stock watch</span>
-              <strong>{stale}</strong>
-              <small>{money(staleCogs)} COGS at 91+ days</small>
-            </button>
-            <button type="button" onclick={() => { filter = 'all'; inventoryAgeBucket = 'all'; inventorySort = 'highest-cost'; }}>
-              <span>Total unsold capital</span>
-              <strong>{money(inventoryCostBasis)}</strong>
-              <small>{unsoldItems.length} items ranked by COGS</small>
-            </button>
-          </div>
-
-          <div class="aging-strip">
-            <span class="aging-title">Active listing age</span>
-            <button class:active={inventoryAgeBucket === '0-30'} type="button" onclick={() => setInventoryAgeBucket('0-30')}>
-              <strong>0–30d</strong><small>{activeAgeBuckets.fresh.count} · {money(activeAgeBuckets.fresh.asking)} ask</small>
-            </button>
-            <button class:active={inventoryAgeBucket === '31-60'} type="button" onclick={() => setInventoryAgeBucket('31-60')}>
-              <strong>31–60d</strong><small>{activeAgeBuckets.warming.count} · {money(activeAgeBuckets.warming.asking)} ask</small>
-            </button>
-            <button class:active={inventoryAgeBucket === '61-90'} type="button" onclick={() => setInventoryAgeBucket('61-90')}>
-              <strong>61–90d</strong><small>{activeAgeBuckets.aging.count} · {money(activeAgeBuckets.aging.asking)} ask</small>
-            </button>
-            <button class:danger={activeAgeBuckets.stale.count > 0} class:active={inventoryAgeBucket === '90+'} type="button" onclick={() => setInventoryAgeBucket('90+')}>
-              <strong>91+d</strong><small>{activeAgeBuckets.stale.count} · {money(activeAgeBuckets.stale.asking)} ask</small>
-            </button>
-            {#if inventoryAgeBucket !== 'all'}
-              <button class="aging-clear" type="button" onclick={() => inventoryAgeBucket = 'all'}>Clear age</button>
-            {/if}
-          </div>
+          {#if unlistedOver30.length || activeItems.some((item) => item.ageDays >= 61)}
+            <div class="inventory-risk-grid clean-risk-grid">
+              <button type="button" onclick={() => { filter = 'unlisted'; inventoryAgeBucket = 'all'; inventorySort = 'unlisted-oldest'; }}>
+                <span>Unlisted 30+ days</span>
+                <strong>{unlistedOver30.length}</strong>
+                <small>{money(unlistedOver30Cogs)} tied up</small>
+              </button>
+              <button type="button" onclick={() => { filter = 'active'; inventoryAgeBucket = '61-90'; inventorySort = 'oldest'; }}>
+                <span>Active 61–90 days</span>
+                <strong>{activeItems.filter((item) => item.ageDays >= 61 && item.ageDays <= 90).length}</strong>
+                <small>{money(activeItems.filter((item) => item.ageDays >= 61 && item.ageDays <= 90).reduce((sum, item) => sum + (item.costCents ?? 0), 0))} COGS</small>
+              </button>
+              <button class:danger={stale > 0} type="button" onclick={() => { filter = 'active'; inventoryAgeBucket = '90+'; inventorySort = 'oldest'; }}>
+                <span>Dead-stock watch</span>
+                <strong>{stale}</strong>
+                <small>{money(staleCogs)} COGS at 91+ days</small>
+              </button>
+            </div>
+          {:else}
+            <div class="inventory-intelligence-clear">
+              <span><Check size={18} /></span>
+              <div>
+                <strong>No aging risk right now.</strong>
+                <small>{activeItems.length} active listing{activeItems.length === 1 ? '' : 's'} averaging {avgAge} days old.</small>
+              </div>
+            </div>
+          {/if}
         </section>
 
         <section class="panel inventory-panel">
-          <div class="inventory-tools">
-            <label class="search-field"><Search size={18} /><span class="sr-only">Search inventory</span><input bind:value={query} placeholder="Search title, SKU, bin, source, condition…" /></label>
-            <label class="inventory-category-filter">
-              <span class="sr-only">Filter by category</span>
-              <select bind:value={inventoryCategoryFilter}>
-                <option value="all">All categories</option>
-                {#each enabledInventoryCategories as category}
-                  <option value={category.value}>{category.label}</option>
-                {/each}
-              </select>
+          <div class="inventory-tools clean-inventory-toolbar">
+            <label class="search-field">
+              <Search size={18} />
+              <span class="sr-only">Search inventory</span>
+              <input bind:value={query} placeholder="Search inventory…" />
             </label>
-            <label class="inventory-location-filter">
-              <span class="sr-only">Filter by storage location</span>
-              <select bind:value={inventoryLocationFilter}>
-                <option value="all">All locations</option>
-                <option value="__unset__">Location not set</option>
-                {#each inventoryLocations as inventoryLocation}
-                  <option value={inventoryLocation}>{inventoryLocation}</option>
-                {/each}
-              </select>
-            </label>
-            <label class="inventory-sort-filter">
-              <span class="sr-only">Sort inventory</span>
-              <select bind:value={inventorySort}>
-                <option value="default">Default sort</option>
-                <option value="oldest">Oldest active first</option>
-                <option value="highest-cost">Highest COGS first</option>
-                <option value="highest-ask">Highest asking value</option>
-                <option value="unlisted-oldest">Unlisted oldest first</option>
-              </select>
-            </label>
-            <div class="filter-tabs" role="group" aria-label="Filter inventory">
+
+            <div class="filter-tabs" role="group" aria-label="Filter inventory status">
               {#each ['all', 'active', 'scheduled', 'unlisted', 'sold'] as value}
                 <button
                   class:active={filter === value}
@@ -1896,6 +2262,83 @@
                 >{value}</button>
               {/each}
             </div>
+
+            <details class="inventory-filter-drawer">
+              <summary class="button secondary">
+                <Settings size={16} />
+                Filters &amp; sort
+                {#if inventoryAdvancedFilterCount}<b>{inventoryAdvancedFilterCount}</b>{/if}
+              </summary>
+
+              <div class="inventory-filter-options">
+                <label>
+                  <span>Category</span>
+                  <select bind:value={inventoryCategoryFilter}>
+                    <option value="all">All categories</option>
+                    {#each enabledInventoryCategories as category}
+                      <option value={category.value}>{category.label}</option>
+                    {/each}
+                  </select>
+                </label>
+
+                <label>
+                  <span>Location</span>
+                  <select bind:value={inventoryLocationFilter}>
+                    <option value="all">All locations</option>
+                    <option value="__unset__">Location not set</option>
+                    {#each inventoryLocations as inventoryLocation}
+                      <option value={inventoryLocation}>{inventoryLocation}</option>
+                    {/each}
+                  </select>
+                </label>
+
+                <label>
+                  <span>Data quality</span>
+                  <select bind:value={inventoryQualityFilter}>
+                    <option value="all">All data quality</option>
+                    <option value="unsold">Unsold only</option>
+                    <option value="missing-cost">Purchase cost missing</option>
+                    <option value="missing-source">Source missing</option>
+                    <option value="missing-location">Location missing</option>
+                  </select>
+                </label>
+
+                <label>
+                  <span>Listing age</span>
+                  <select bind:value={inventoryAgeBucket}>
+                    <option value="all">Any age</option>
+                    <option value="0-30">0–30 days</option>
+                    <option value="31-60">31–60 days</option>
+                    <option value="61-90">61–90 days</option>
+                    <option value="90+">91+ days</option>
+                  </select>
+                </label>
+
+                <label class="filter-sort-wide">
+                  <span>Sort</span>
+                  <select bind:value={inventorySort}>
+                    <option value="default">Default</option>
+                    <option value="oldest">Oldest active first</option>
+                    <option value="highest-cost">Highest COGS first</option>
+                    <option value="highest-ask">Highest asking value</option>
+                    <option value="unlisted-oldest">Unlisted oldest first</option>
+                  </select>
+                </label>
+
+                <button
+                  class="clear-filter-button"
+                  type="button"
+                  disabled={!inventoryAdvancedFilterCount}
+                  onclick={() => {
+                    inventoryCategoryFilter = 'all';
+                    inventoryLocationFilter = 'all';
+                    inventoryQualityFilter = 'all';
+                    inventoryAgeBucket = 'all';
+                    inventorySort = 'default';
+                  }}
+                >Clear filters</button>
+              </div>
+            </details>
           </div>
 
           <div class:active={selectedInventoryIds.length > 0} class="inventory-selection-bar">
@@ -1937,12 +2380,23 @@
             {#if profitIsFinal}<Check size={14} /> Fully costed{:else}<AlertTriangle size={14} /> {metrics.missingCogs} COGS missing{/if}
           </span>
         </div>
-        {#if filteredSales.length}
+
+        {#if unmatchedSales.length}
+          <div class="sales-quality-toolbar">
+            <span>{unmatchedSales.length} sale{unmatchedSales.length === 1 ? '' : 's'} need inventory matching</span>
+            <button class:active={salesQualityFilter === 'all'} type="button" onclick={() => salesQualityFilter = 'all'}>All sales</button>
+            <button class:active={salesQualityFilter === 'unmatched'} type="button" onclick={() => salesQualityFilter = 'unmatched'}>
+              Review unmatched <b>{unmatchedSales.length}</b>
+            </button>
+          </div>
+        {/if}
+
+        {#if visibleSales.length}
           <div class="table-wrap"><table><thead><tr>
             <th>Item</th><th>Sold</th><th class="num">Gross</th><th class="num">Fees + adjustments</th>
             <th class="num">COGS</th><th class="num">Profit</th><th class="num">Margin</th><th class="num">ROI</th>
           </tr></thead><tbody>
-            {#each filteredSales as sale}
+            {#each visibleSales as sale}
               <tr>
                 <td>
                   <button class="sale-button" onclick={() => selectedSale = sale}>
@@ -1968,7 +2422,10 @@
             {/each}
           </tbody></table></div>
         {:else}
-          <div class="empty-state"><strong>No sales in this period.</strong>Choose another reporting range.</div>
+          <div class="empty-state">
+            <strong>{salesQualityFilter === 'unmatched' ? 'No unmatched sales in this period.' : 'No sales in this period.'}</strong>
+            {salesQualityFilter === 'unmatched' ? 'Every visible sale is linked to tracked inventory.' : 'Choose another reporting range.'}
+          </div>
         {/if}
       </section>
 
@@ -2297,6 +2754,13 @@
           </div>
         </section>
 
+        <nav class="report-section-tabs" aria-label="Report section">
+          <button class:active={reportSection === 'performance'} onclick={() => reportSection = 'performance'}>Performance</button>
+          <button class:active={reportSection === 'inventory'} onclick={() => reportSection = 'inventory'}>Inventory health</button>
+          <button class:active={reportSection === 'exports'} onclick={() => reportSection = 'exports'}>Exports</button>
+        </nav>
+
+        {#if reportSection === 'performance'}
         <section class="metrics-grid report-metrics" aria-label="Profit analytics summary">
           <article class="metric-card tone-green">
             <div class="metric-top"><span>Gross revenue</span><CircleDollarSign size={18} /></div>
@@ -2320,7 +2784,7 @@
           </article>
         </section>
 
-        <section class="analytics-intro panel">
+        <section class="analytics-intro clean-section-intro">
           <div>
             <span class="kicker">BUYING INTELLIGENCE</span>
             <h2>What are you actually good at selling?</h2>
@@ -2466,6 +2930,9 @@
           {/if}
         </section>
 
+        {/if}
+
+        {#if reportSection === 'inventory'}
         <section class="panel inventory-health-report">
           <div class="panel-heading table-heading">
             <div>
@@ -2531,7 +2998,9 @@
             Sell-through here means sold inventory ÷ all tracked inventory in Sellquity. It is an operational inventory ratio, not an eBay marketplace-wide sell-through estimate.
           </div>
         </section>
+        {/if}
 
+        {#if reportSection === 'performance'}
         <section class="reports-grid">
           <article class="panel monthly-report">
             <div class="panel-heading table-heading">
@@ -2593,6 +3062,9 @@
           </article>
         </section>
 
+        {/if}
+
+        {#if reportSection === 'exports'}
         <section class="panel export-center">
           <div class="panel-heading table-heading">
             <div><span class="kicker">EXPORT CENTER</span><h2>Take your data with you</h2></div>
@@ -2605,6 +3077,8 @@
             <button onclick={exportLedger}><span class="export-icon"><WalletCards size={20} /></span><span><strong>Transaction ledger</strong><small>Every normalized financial transaction in the period</small></span><Download size={17} /></button>
           </div>
         </section>
+
+        {/if}
 
         <section class="print-report-only">
           <header>

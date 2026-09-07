@@ -72,6 +72,20 @@ export type PurchaseLotRow = {
   createdAt: string;
 };
 
+export type ImportFreshness = {
+  activeListings: {
+    importedAt: string | null;
+    rowsImported: number;
+    filename: string | null;
+  };
+  transactions: {
+    importedAt: string | null;
+    dataThrough: string | null;
+    rowsImported: number;
+    filename: string | null;
+  };
+};
+
 export type SkuReservationRow = {
   id: string;
   sku: string;
@@ -183,6 +197,8 @@ export type DashboardData = {
   transactions: AccountingTransactionRow[];
   /** Recorded inventory purchases. Purchase cash is not automatically treated as P&L. */
   purchaseLots?: PurchaseLotRow[];
+  /** Freshness of the manual eBay Seller Hub data feeds. */
+  importFreshness?: ImportFreshness;
   skuReservations: SkuReservationRow[];
   skuSequences: SkuSequenceRow[];
   /** Effective workspace built-ins after enabled/prefix preferences are applied. */
