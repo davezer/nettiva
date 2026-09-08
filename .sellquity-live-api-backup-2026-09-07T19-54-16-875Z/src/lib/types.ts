@@ -191,10 +191,6 @@ export type DashboardData = {
   hasImportedData: boolean;
   financialsComplete: boolean;
   lastSyncedAt: string | null;
-  ebayConnection?: {
-    displayName: string;
-    status: string;
-  } | null;
   unallocatedNetCents: number;
   inventory: InventoryRow[];
   sales: SaleRow[];

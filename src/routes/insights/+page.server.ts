@@ -8,6 +8,6 @@ export const load: PageServerLoad = async ({ platform, locals, parent }) => {
     includeSales: true,
     includeTransactions: false,
     includeCoverage: false,
-    includeHealth: true
+    includeHealth: false
   }, shell);
 };

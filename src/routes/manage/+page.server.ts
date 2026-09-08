@@ -4,10 +4,10 @@ import { loadOrganizedDashboard } from '$lib/server/organized-dashboard';
 export const load: PageServerLoad = async ({ platform, locals, parent }) => {
   const { shell } = await parent();
   return loadOrganizedDashboard(platform, locals, {
-    includeInventory: true,
-    includeSales: true,
+    includeInventory: false,
+    includeSales: false,
     includeTransactions: false,
     includeCoverage: false,
-    includeHealth: true
+    includeHealth: false
   }, shell);
 };

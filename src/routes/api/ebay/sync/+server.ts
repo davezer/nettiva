@@ -1,19 +1,27 @@
-import { redirect } from '@sveltejs/kit';
+import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { syncEbay } from '$lib/server/ebay-sync';
+import { syncEbayAutomated } from '$lib/server/ebay-history-sync';
 import { currentWorkspaceId } from '$lib/server/workspace';
 
 export const POST: RequestHandler = async ({ platform, locals }) => {
-  if (!platform) redirect(303, '/?ebay=runtime-error');
+  if (!platform) {
+    return json({ error: 'Cloudflare runtime unavailable.' }, { status: 500 });
+  }
+
+  if (locals.workspaceRole === 'member') {
+    return json({ error: 'You do not have permission to run an eBay sync.' }, { status: 403 });
+  }
 
   const workspaceId = currentWorkspaceId(locals);
 
   try {
-    await syncEbay(platform.env, workspaceId);
+    const result = await syncEbayAutomated(platform.env, workspaceId);
+    return json({ ok: true, ...result });
   } catch (error) {
     console.error('Sellquity eBay sync failed', error);
-    redirect(303, '/?ebay=sync-error');
+    return json(
+      { error: error instanceof Error ? error.message : 'eBay sync failed.' },
+      { status: 500 }
+    );
   }
-
-  redirect(303, '/?ebay=synced');
 };
