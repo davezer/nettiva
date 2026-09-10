@@ -109,7 +109,7 @@
           <div>
             <span class="org-pill sold"><PackageCheck size={11} /> Sold</span>
             <h2 style="margin:10px 0 5px;font-size:1rem;line-height:1.2">{sale.title}</h2>
-            <p style="margin:0;color:#617d8b;font-size:.65rem">Order {sale.ebayOrderId}</p>
+            <p style="margin:0;color:#8f8a80;font-size:.72rem">Order {sale.ebayOrderId}</p>
           </div>
           <div class="org-detail-meta">
             <div class="org-detail-meta-row"><span>Marketplace</span><strong>{sale.marketplaceProvider === 'whatnot' ? 'Whatnot' : 'eBay'}</strong></div>
@@ -137,8 +137,8 @@
           </div>
         </article>
 
-        <article class="org-card">
-          <div class="org-card-head"><div><span class="org-kicker">MONEY FLOW</span><h2>Exactly where the sale went</h2><p>No hunting across inventory, fees and ledger screens.</p></div><CircleDollarSign size={18} /></div>
+        <article class="org-card org-money-story-card">
+          <div class="org-card-head"><div><span class="org-kicker">MONEY STORY</span><h2>Exactly where the sale went</h2><p>Buyer cash in. Every cost out. The number you actually kept.</p></div><CircleDollarSign size={18} /></div>
           <div class="org-money-flow">
             <div class="org-money-line"><span>Item price</span><strong>{money(sale.salePriceCents)}</strong></div>
             <div class="org-money-line"><span>Buyer-paid shipping</span><strong>{money(sale.shippingChargedCents)}</strong></div>

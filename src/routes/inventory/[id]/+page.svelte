@@ -9,10 +9,12 @@
   const dashboard = $derived(data.dashboard);
   const item = $derived(data.item);
   const sale = $derived(data.sale);
+  const categories = $derived(data.categories ?? []);
 
   let title = $state('');
   let sku = $state('');
   let condition = $state('');
+  let category = $state('');
   let purchasedAt = $state('');
   let purchaseCost = $state('');
   let source = $state('');
@@ -29,6 +31,7 @@
     title = current.title;
     sku = current.sku ?? '';
     condition = current.conditionName ?? '';
+    category = current.category;
     purchasedAt = current.purchasedAt?.slice(0, 10) ?? '';
     purchaseCost = current.costCents == null ? '' : (current.costCents / 100).toFixed(2);
     source = current.source ?? '';
@@ -49,12 +52,39 @@
     soldUnmatched: dashboard.sales.filter((candidate) => !candidate.inventoryItemId).length
   });
 
+  const categoryLabel = $derived(
+    categories.find((candidate) => candidate.value === item.category)?.label ??
+      item.category.replace(/^custom_/, '').replace(/_/g, ' ')
+  );
+
+  function ebayDetailImage(value: string | null) {
+    if (!value) return null;
+
+    // eBay's GalleryURL is commonly an i.ebayimg.com thumbnail such as
+    // .../s-l225.jpg. The same image service exposes a larger rendition.
+    return value.replace(
+      /(\/s-l)\d+(\.(?:jpe?g|png|webp))(.*)$/i,
+      '$11600$2$3'
+    );
+  }
+
+  const detailImageUrl = $derived(ebayDetailImage(item.imageUrl));
+
+  function useStoredImageFallback(event: Event) {
+    const image = event.currentTarget as HTMLImageElement;
+    const fallback = image.dataset.fallback;
+    if (!fallback || image.dataset.fallbackUsed === 'true') return;
+
+    image.dataset.fallbackUsed = 'true';
+    image.src = fallback;
+  }
+
   async function saveItem(event: SubmitEvent) {
     event.preventDefault();
     const parsed = purchaseCost.trim() === '' ? null : Number(purchaseCost);
-    if (!title.trim() || (parsed != null && (!Number.isFinite(parsed) || parsed < 0))) {
+    if (!title.trim() || !category || (parsed != null && (!Number.isFinite(parsed) || parsed < 0))) {
       messageBad = true;
-      message = 'Enter a title and a valid purchase cost.';
+      message = 'Enter a title, category, and a valid purchase cost.';
       return;
     }
 
@@ -69,7 +99,7 @@
         title: title.trim(),
         sku: sku.trim() || null,
         conditionName: condition.trim() || null,
-        category: item.category,
+        category,
         purchasedAt: purchasedAt || null,
         purchaseCostCents: parsed == null ? null : Math.round(parsed * 100),
         source: source.trim() || null,
@@ -103,7 +133,17 @@
       <article class="org-card">
         <div class="org-detail-photo">
           <div class="org-detail-photo-frame">
-            {#if item.imageUrl}<img src={item.imageUrl} alt={item.title} />{:else}<span class="fallback">S</span>{/if}
+            {#if detailImageUrl}
+              <img
+                class="inventory-detail-image"
+                src={detailImageUrl}
+                data-fallback={item.imageUrl ?? undefined}
+                onerror={useStoredImageFallback}
+                alt={item.title}
+              />
+            {:else}
+              <span class="fallback">S</span>
+            {/if}
           </div>
           <div>
             <span class={`org-pill ${item.status}`}>{item.status}</span>
@@ -111,7 +151,7 @@
             <p style="margin:0;color:#617d8b;font-size:.65rem">{item.sku || item.ebayItemId || 'No marketplace identity yet'}</p>
           </div>
           <div class="org-detail-meta">
-            <div class="org-detail-meta-row"><span>Category</span><strong>{item.category.replace(/_/g, ' ')}</strong></div>
+            <div class="org-detail-meta-row"><span>Category</span><strong>{categoryLabel}</strong></div>
             <div class="org-detail-meta-row"><span>Purchase date</span><strong>{item.purchasedAt ? shortDate(item.purchasedAt) : 'Missing'}</strong></div>
             <div class="org-detail-meta-row"><span>Purchase cost</span><strong class:org-warning={item.costCents == null}>{item.costCents == null ? 'Missing' : money(item.costCents)}</strong></div>
             <div class="org-detail-meta-row"><span>Source</span><strong class:org-warning={!item.source}>{item.source || 'Missing'}</strong></div>
@@ -138,6 +178,14 @@
               <label class="org-field wide"><span>Title</span><input class="org-input" bind:value={title} /></label>
               <label class="org-field"><span>SKU / custom label</span><input class="org-input" bind:value={sku} /></label>
               <label class="org-field"><span>Condition</span><input class="org-input" bind:value={condition} /></label>
+              <label class="org-field">
+                <span>Category</span>
+                <select class="org-select" bind:value={category}>
+                  {#each categories as option}
+                    <option value={option.value}>{option.label}</option>
+                  {/each}
+                </select>
+              </label>
               <label class="org-field"><span>Purchase date</span><input class="org-input" type="date" bind:value={purchasedAt} /></label>
               <label class="org-field"><span>Purchase cost</span><input class="org-input" inputmode="decimal" bind:value={purchaseCost} placeholder="0.00" /></label>
               <label class="org-field"><span>Source</span><input class="org-input" bind:value={source} placeholder="Goodwill, card show…" /></label>
@@ -155,3 +203,16 @@
     {/if}
   </div>
 </PageChrome>
+
+<style>
+  /* Never blow a tiny marketplace thumbnail up to poster size. If eBay's
+     1600px rendition is available it can fill the frame naturally; otherwise
+     the fallback stays at its intrinsic size. */
+  :global(.org-detail-photo-frame .inventory-detail-image) {
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+  }
+</style>

@@ -2,23 +2,18 @@
   import type { Snippet } from 'svelte';
   import { page } from '$app/state';
   import {
-    BarChart3,
-    Boxes,
     ChevronDown,
     ChevronRight,
     CircleDollarSign,
     ClipboardCheck,
     FileSpreadsheet,
-    Home,
     Layers3,
-    PackageCheck,
     PlugZap,
     ReceiptText,
     Settings,
     ShoppingBag,
     Tag,
-    UserRound,
-    WalletCards
+    UserRound
   } from '@lucide/svelte';
   import type { OrganizedShellCounts } from '$lib/server/organized-dashboard';
   import type { WorkspaceSummary } from '$lib/types';
@@ -40,8 +35,8 @@
 
   const groups = [
     {
+      index: '02',
       label: 'Inventory',
-      icon: Boxes,
       items: [
         { key: 'inventory-all', label: 'All inventory', href: '/inventory', count: 'inventoryAll' as const },
         { key: 'inventory-unlisted', label: 'Unlisted', href: '/inventory?status=unlisted', count: 'inventoryUnlisted' as const },
@@ -52,8 +47,8 @@
       ]
     },
     {
+      index: '03',
       label: 'Sold',
-      icon: PackageCheck,
       items: [
         { key: 'sold-all', label: 'All sold', href: '/sold', count: 'soldAll' as const },
         { key: 'sold-missing-cogs', label: 'Missing COGS', href: '/sold?quality=missing-cogs', count: 'soldMissingCogs' as const },
@@ -61,8 +56,8 @@
       ]
     },
     {
+      index: '04',
       label: 'Money',
-      icon: WalletCards,
       items: [
         { key: 'money-overview', label: 'Overview', href: '/money' },
         { key: 'money-transactions', label: 'Transactions', href: '/money/transactions', icon: ReceiptText },
@@ -71,15 +66,15 @@
       ]
     },
     {
+      index: '05',
       label: 'Insights',
-      icon: BarChart3,
       items: [
         { key: 'insights', label: 'Sales & inventory', href: '/insights' }
       ]
     },
     {
+      index: '06',
       label: 'Manage',
-      icon: Settings,
       items: [
         { key: 'manage', label: 'Manage home', href: '/manage', icon: Settings },
         { key: 'categories', label: 'Categories', href: '/categories', icon: Tag },
@@ -141,20 +136,24 @@
   <aside class="organized-sidebar">
     <a class="organized-brand" href="/" aria-label="Sellquity home" data-sveltekit-preload-data="hover">
       <span class="organized-brand-mark"><img src="/s-no-bg.png" alt="" /></span>
-      <span><strong>SELLQUITY</strong><small>Resale intelligence</small></span>
+      <span><strong>SELLQUITY</strong><small>Reseller ledger</small></span>
     </a>
+
+    <div class="organized-nav-caption">
+      <span>WORKSPACE INDEX</span>
+      <b>{workspace.name}</b>
+    </div>
 
     <nav class="organized-nav" aria-label="Primary navigation" data-sveltekit-preload-data="hover">
       <a class:active={active === 'home'} class="organized-nav-home" href="/">
-        <Home size={18} />
+        <span class="organized-nav-index">01</span>
         <span>Home</span>
       </a>
 
       {#each groups as group}
-        {@const GroupIcon = group.icon}
         <details class="organized-nav-group" open>
           <summary>
-            <GroupIcon size={18} />
+            <span class="organized-nav-index">{group.index}</span>
             <span>{group.label}</span>
             <ChevronDown class="organized-chevron" size={15} />
           </summary>

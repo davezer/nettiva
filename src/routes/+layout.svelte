@@ -4,6 +4,7 @@
   import '../app.css';
   import '../accounting.css';
   import '../sellquity-theme.css';
+  import '../midnight-polish.css';
   import PersistentSidebar from '$lib/components/organized/PersistentSidebar.svelte';
 
   let {
@@ -18,7 +19,7 @@
 <svelte:head>
   <title>Sellquity · Resale intelligence</title>
   <meta name="description" content="Inventory, sales, accounting, and true profit for your resale business." />
-  <meta name="theme-color" content="#050b14" />
+  <meta name="theme-color" content="#0b1020" />
   <link rel="icon" href="/favicon.svg" />
 </svelte:head>
 

@@ -1,0 +1,972 @@
+/* ==========================================================================
+   SELLQUITY — MODERN RESELLER LEDGER
+   Visual identity layer only. No data model, routing, or API behavior changes.
+   Loaded after the legacy styles so the whole authenticated workspace feels
+   like Sellquity instead of generic navy SaaS.
+   ========================================================================== */
+
+:root {
+  --sq-ink: #111211;
+  --sq-ink-deep: #0c0d0c;
+  --sq-paper: #f3efe7;
+  --sq-paper-soft: #d8d3c8;
+  --sq-stone: #aaa69c;
+  --sq-dim: #747169;
+  --sq-surface: #191a18;
+  --sq-surface-2: #1f201d;
+  --sq-surface-3: #252620;
+  --sq-rule: #3a3a31;
+  --sq-rule-soft: #2d2e28;
+  --sq-equity: #b7df55;
+  --sq-equity-bright: #c4eb66;
+  --sq-equity-deep: #657b31;
+  --sq-copper: #d97949;
+  --sq-copper-soft: #a85d3b;
+  --sq-ochre: #d2a13e;
+  --sq-brick: #d25c52;
+  --sq-display: "Arial Narrow", "Roboto Condensed", "Helvetica Neue", Arial, sans-serif;
+  --sq-ui: Inter, "Segoe UI", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --sq-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+html,
+body {
+  background: var(--sq-ink) !important;
+  color: var(--sq-paper);
+}
+
+body {
+  font-family: var(--sq-ui);
+}
+
+/* subtle ledger/grid paper, not a blue glow */
+.organized-shell {
+  grid-template-columns: 264px minmax(0, 1fr) !important;
+  color: var(--sq-paper) !important;
+  background:
+    linear-gradient(rgba(243,239,231,.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(243,239,231,.012) 1px, transparent 1px),
+    var(--sq-ink) !important;
+  background-size: 32px 32px !important;
+}
+
+/* --------------------------------------------------------------------------
+   SIDEBAR — ledger index rather than another app-icon rail
+   -------------------------------------------------------------------------- */
+.organized-sidebar {
+  border-right: 1px solid var(--sq-rule) !important;
+  background: #141512 !important;
+  scrollbar-color: #4a4a40 transparent !important;
+}
+
+.organized-brand {
+  min-height: 82px !important;
+  gap: 12px !important;
+  padding: 16px 18px !important;
+  border-bottom: 1px solid var(--sq-rule) !important;
+}
+
+.organized-brand-mark {
+  width: 41px !important;
+  height: 41px !important;
+  border: 1px solid #5c573f !important;
+  border-radius: 4px !important;
+  background: #20211d !important;
+  box-shadow: inset 0 -2px 0 rgba(217,121,73,.22) !important;
+}
+
+.organized-brand-mark img {
+  width: 27px !important;
+  height: 27px !important;
+}
+
+.organized-brand strong {
+  color: var(--sq-paper) !important;
+  font-family: var(--sq-display) !important;
+  font-size: 1.05rem !important;
+  letter-spacing: .16em !important;
+}
+
+.organized-brand small {
+  color: var(--sq-copper) !important;
+  font: 800 .68rem var(--sq-mono) !important;
+  letter-spacing: .1em !important;
+}
+
+.organized-nav-caption {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 16px 18px 8px;
+  color: var(--sq-dim);
+}
+
+.organized-nav-caption span {
+  font: 850 .64rem var(--sq-mono);
+  letter-spacing: .16em;
+}
+
+.organized-nav-caption b {
+  overflow: hidden;
+  color: var(--sq-stone);
+  font-size: .78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.organized-nav {
+  padding: 6px 12px 24px !important;
+}
+
+.organized-nav-home,
+.organized-nav-group summary,
+.organized-nav-children a {
+  border-radius: 2px !important;
+}
+
+.organized-nav-index {
+  color: var(--sq-copper);
+  font: 850 .7rem var(--sq-mono);
+  letter-spacing: .06em;
+}
+
+.organized-nav-home {
+  min-height: 42px !important;
+  display: grid !important;
+  grid-template-columns: 30px minmax(0,1fr) !important;
+  gap: 7px !important;
+  padding: 0 8px !important;
+  color: var(--sq-paper-soft) !important;
+  font-size: .9rem !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.organized-nav-home:hover {
+  background: rgba(243,239,231,.035) !important;
+}
+
+.organized-nav-home.active {
+  color: var(--sq-paper) !important;
+  background: linear-gradient(90deg, rgba(183,223,85,.09), transparent 78%) !important;
+  box-shadow: inset 3px 0 var(--sq-equity) !important;
+}
+
+.organized-nav-home.active .organized-nav-index {
+  color: var(--sq-equity) !important;
+}
+
+.organized-nav-group {
+  margin-top: 4px !important;
+}
+
+.organized-nav-group summary {
+  min-height: 41px !important;
+  grid-template-columns: 30px minmax(0, 1fr) 16px !important;
+  gap: 7px !important;
+  padding: 0 8px !important;
+  color: #cbc6bb !important;
+  font-family: var(--sq-display) !important;
+  font-size: .91rem !important;
+  font-weight: 800 !important;
+  letter-spacing: .02em !important;
+  text-transform: uppercase;
+}
+
+.organized-nav-group summary:hover {
+  background: rgba(243,239,231,.03) !important;
+  color: var(--sq-paper) !important;
+}
+
+.organized-chevron {
+  color: #68655d !important;
+}
+
+.organized-nav-children {
+  margin: 0 0 8px 16px !important;
+  padding: 2px 0 2px 21px !important;
+  border-left: 1px solid #403f36 !important;
+}
+
+.organized-nav-children a {
+  position: relative;
+  min-height: 34px !important;
+  gap: 8px !important;
+  padding: 0 8px 0 10px !important;
+  color: #918e85 !important;
+  font-size: .81rem !important;
+  font-weight: 650 !important;
+  background: transparent !important;
+}
+
+.organized-nav-children a::before {
+  content: "";
+  position: absolute;
+  left: -22px;
+  width: 2px;
+  height: 0;
+  background: var(--sq-equity);
+  transition: height 120ms ease;
+}
+
+.organized-nav-children a:hover {
+  color: var(--sq-paper-soft) !important;
+  background: rgba(243,239,231,.025) !important;
+}
+
+.organized-nav-children a.active {
+  color: var(--sq-paper) !important;
+  background: linear-gradient(90deg, rgba(183,223,85,.07), transparent 85%) !important;
+}
+
+.organized-nav-children a.active::before {
+  height: 22px;
+}
+
+.organized-nav-children a.active svg {
+  color: var(--sq-equity) !important;
+}
+
+.organized-nav-children a b {
+  min-width: 23px !important;
+  border: 0 !important;
+  border-radius: 2px !important;
+  padding: 2px 5px !important;
+  color: #9a978d !important;
+  background: #252620 !important;
+  font: 850 .66rem var(--sq-mono) !important;
+}
+
+.organized-nav-children a.active b {
+  color: #151713 !important;
+  background: var(--sq-equity) !important;
+}
+
+.organized-sidebar-footer {
+  padding: 11px 12px !important;
+  border-top: 1px solid var(--sq-rule) !important;
+  background: #11120f !important;
+}
+
+.organized-sidebar-footer > a {
+  border-radius: 3px !important;
+  color: var(--sq-stone) !important;
+}
+
+.organized-sidebar-footer > a:hover {
+  background: #1d1e1a !important;
+  color: var(--sq-paper) !important;
+}
+
+.organized-sidebar-footer > a > svg:first-child {
+  border-color: #4a493e !important;
+  border-radius: 3px !important;
+  color: var(--sq-copper) !important;
+}
+
+.organized-sidebar-footer strong {
+  color: var(--sq-paper-soft) !important;
+  font-size: .8rem !important;
+}
+
+.organized-sidebar-footer small,
+.organized-connection-line {
+  color: var(--sq-dim) !important;
+}
+
+.organized-connection-line > span {
+  background: var(--sq-ochre) !important;
+  box-shadow: none !important;
+}
+
+.organized-connection-line.online > span {
+  background: var(--sq-equity) !important;
+  box-shadow: 0 0 0 2px rgba(183,223,85,.12) !important;
+}
+
+/* --------------------------------------------------------------------------
+   PAGE CHROME — flat work surface + ledger rules
+   -------------------------------------------------------------------------- */
+.organized-main {
+  background: transparent !important;
+}
+
+.organized-topbar {
+  min-height: 84px !important;
+  padding: 16px clamp(22px, 2.8vw, 42px) !important;
+  border-bottom: 1px solid var(--sq-rule) !important;
+  background: rgba(17,18,17,.94) !important;
+  backdrop-filter: blur(14px) !important;
+}
+
+.organized-topbar::after {
+  content: "";
+  position: absolute;
+  left: clamp(22px, 2.8vw, 42px);
+  right: clamp(22px, 2.8vw, 42px);
+  bottom: -1px;
+  height: 1px;
+  background: linear-gradient(90deg, var(--sq-copper), #4a493f 38%, transparent 78%);
+  opacity: .72;
+}
+
+.organized-topbar h1 {
+  color: var(--sq-paper) !important;
+  font-family: var(--sq-display) !important;
+  font-size: clamp(2rem, 3vw, 2.7rem) !important;
+  font-weight: 850 !important;
+  letter-spacing: -.035em !important;
+}
+
+.organized-eyebrow,
+.org-kicker {
+  color: var(--sq-equity) !important;
+  font-family: var(--sq-mono) !important;
+  font-weight: 850 !important;
+  letter-spacing: .15em !important;
+}
+
+.organized-eyebrow { font-size: .7rem !important; }
+.org-kicker { font-size: .66rem !important; }
+
+.organized-page {
+  padding: 26px clamp(22px, 2.8vw, 42px) 54px !important;
+}
+
+.organized-sync-banner {
+  margin: 12px clamp(22px, 2.8vw, 42px) 0 !important;
+  border-color: #4c5831 !important;
+  border-radius: 3px !important;
+  background: #1b2115 !important;
+  color: #c8e383 !important;
+}
+
+/* --------------------------------------------------------------------------
+   CONTROLS — compact, squared, purposeful
+   -------------------------------------------------------------------------- */
+.org-button {
+  min-height: 40px !important;
+  border-radius: 3px !important;
+  font-size: .81rem !important;
+  box-shadow: none !important;
+}
+
+.org-button:hover {
+  transform: none !important;
+}
+
+.org-button.primary {
+  border-color: #a6cb4d !important;
+  background: var(--sq-equity) !important;
+  color: #151711 !important;
+}
+
+.org-button.primary:hover {
+  background: var(--sq-equity-bright) !important;
+}
+
+.org-button.secondary {
+  border-color: #4b4a40 !important;
+  background: #1b1c19 !important;
+  color: #d0cbc0 !important;
+}
+
+.org-button.secondary:hover {
+  border-color: var(--sq-copper-soft) !important;
+  color: var(--sq-paper) !important;
+}
+
+.org-button.ghost {
+  color: var(--sq-stone) !important;
+}
+
+.org-button.danger {
+  border-color: #6d3b36 !important;
+  background: #2a1816 !important;
+  color: #e28a82 !important;
+}
+
+.org-input,
+.org-select,
+.org-textarea {
+  border-color: #4a493f !important;
+  border-radius: 3px !important;
+  background: #121310 !important;
+  color: var(--sq-paper) !important;
+  font-size: .83rem !important;
+}
+
+.org-input:focus,
+.org-select:focus,
+.org-textarea:focus {
+  border-color: var(--sq-equity) !important;
+  outline: 1px solid rgba(183,223,85,.3) !important;
+}
+
+.org-input::placeholder,
+.org-textarea::placeholder {
+  color: #6e6b63 !important;
+}
+
+.org-search svg {
+  color: #7f7c72 !important;
+}
+
+.org-segments {
+  border-color: #48473e !important;
+  border-radius: 3px !important;
+  background: #141512 !important;
+}
+
+.org-segments a,
+.org-segments button {
+  border-radius: 2px !important;
+  color: #99958b !important;
+}
+
+.org-segments a.active,
+.org-segments button.active {
+  color: #171912 !important;
+  background: var(--sq-equity) !important;
+}
+
+.org-toolbar {
+  border-bottom-color: var(--sq-rule) !important;
+  background: #171815 !important;
+}
+
+/* --------------------------------------------------------------------------
+   CARDS + METRICS — fewer "floating SaaS cards", more structured work surface
+   -------------------------------------------------------------------------- */
+.org-card {
+  border: 1px solid var(--sq-rule) !important;
+  border-radius: 5px !important;
+  background: var(--sq-surface) !important;
+  box-shadow: none !important;
+}
+
+.org-card-head {
+  min-height: 62px !important;
+  border-bottom-color: var(--sq-rule) !important;
+  background: #1a1b18 !important;
+}
+
+.org-card-head h2,
+.org-card-head h3 {
+  color: var(--sq-paper) !important;
+  font-family: var(--sq-display) !important;
+  font-size: 1.13rem !important;
+  font-weight: 800 !important;
+}
+
+.org-card-head p {
+  color: var(--sq-stone) !important;
+}
+
+.org-card-head > svg {
+  color: var(--sq-copper) !important;
+}
+
+.org-grid.cols-4 {
+  gap: 10px !important;
+}
+
+.org-metric {
+  min-height: 132px !important;
+  padding: 17px 18px !important;
+  border-top: 2px solid #4b493f !important;
+}
+
+.org-metric::after {
+  right: -30px !important;
+  bottom: -55px !important;
+  width: 125px !important;
+  height: 125px !important;
+  opacity: .018 !important;
+}
+
+.org-metric-top {
+  color: var(--sq-stone) !important;
+  font-size: .81rem !important;
+}
+
+.org-metric-top svg {
+  color: var(--sq-copper) !important;
+}
+
+.org-metric > strong {
+  color: var(--sq-paper) !important;
+  font-family: var(--sq-display) !important;
+  font-size: clamp(1.8rem, 3vw, 2.35rem) !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.org-metric > small {
+  color: var(--sq-dim) !important;
+}
+
+.org-metric.profit {
+  border-top-color: var(--sq-equity) !important;
+}
+
+.org-metric.profit > strong,
+.org-positive,
+.money-positive {
+  color: var(--sq-equity) !important;
+}
+
+.org-negative,
+.money-negative {
+  color: #dc766c !important;
+}
+
+.org-warning,
+.missing {
+  color: var(--sq-ochre) !important;
+}
+
+.org-muted {
+  color: var(--sq-stone) !important;
+}
+
+/* --------------------------------------------------------------------------
+   TABLES — ledger lines, generous rows, no blue glass
+   -------------------------------------------------------------------------- */
+.org-table-wrap {
+  scrollbar-color: #535147 #191a18 !important;
+}
+
+.org-table {
+  font-size: .8rem !important;
+}
+
+.org-table thead {
+  background: #151613 !important;
+}
+
+.org-table th {
+  height: 44px !important;
+  color: #a39f94 !important;
+  font: 850 .66rem var(--sq-mono) !important;
+  letter-spacing: .08em !important;
+}
+
+.org-table tr {
+  border-top-color: var(--sq-rule-soft) !important;
+}
+
+.org-table tbody tr:hover {
+  background: #20211d !important;
+}
+
+.org-table td {
+  height: 64px !important;
+  color: #beb9ae !important;
+}
+
+.org-table td.title a {
+  color: var(--sq-paper) !important;
+}
+
+.org-table td.title strong {
+  color: var(--sq-paper) !important;
+  font-size: .81rem !important;
+}
+
+.org-table td.title small {
+  color: #7d796f !important;
+}
+
+.org-table td a:hover strong {
+  color: var(--sq-equity-bright) !important;
+}
+
+.org-item-thumb,
+.org-sale-row-main img {
+  border-color: #4c4a40 !important;
+  border-radius: 3px !important;
+  background: #20211d !important;
+}
+
+.org-pill {
+  border-color: #504e43 !important;
+  background: #20211c !important;
+  color: #b3aea2 !important;
+}
+
+.org-pill.active,
+.org-pill.good {
+  border-color: #667939 !important;
+  background: #202718 !important;
+  color: var(--sq-equity) !important;
+}
+
+.org-pill.scheduled {
+  border-color: #6a5630 !important;
+  background: #282115 !important;
+  color: #d8ac55 !important;
+}
+
+.org-pill.unlisted {
+  border-color: #625246 !important;
+  background: #261d18 !important;
+  color: #d79773 !important;
+}
+
+.org-pill.sold {
+  border-color: #6a543c !important;
+  background: #241e18 !important;
+  color: #e1a778 !important;
+}
+
+.org-pill.bad {
+  border-color: #6c3e39 !important;
+  background: #281817 !important;
+  color: #df8279 !important;
+}
+
+/* --------------------------------------------------------------------------
+   LISTS + QUEUES
+   -------------------------------------------------------------------------- */
+.org-action-row,
+.org-sale-row,
+.org-profit-row,
+.org-ranking-row {
+  border-color: var(--sq-rule-soft) !important;
+}
+
+.org-action-row:hover,
+.org-sale-row:hover {
+  background: #20211d !important;
+}
+
+.org-action-dot {
+  border-radius: 3px !important;
+  background: #292c20 !important;
+  color: var(--sq-equity) !important;
+}
+
+.org-action-dot.warn {
+  background: #2d2516 !important;
+  color: var(--sq-ochre) !important;
+}
+
+.org-action-dot.bad {
+  background: #2b1917 !important;
+  color: #dc776d !important;
+}
+
+.org-action-copy strong,
+.org-sale-row-main strong,
+.org-ranking-copy strong {
+  color: var(--sq-paper-soft) !important;
+}
+
+.org-action-copy small,
+.org-sale-row-main small,
+.org-ranking-copy small {
+  color: var(--sq-dim) !important;
+}
+
+.org-action-row > b {
+  border-color: #4b4a40 !important;
+  border-radius: 2px !important;
+  background: #20211d !important;
+  color: var(--sq-stone) !important;
+}
+
+.org-sale-profit strong {
+  color: var(--sq-equity) !important;
+}
+
+.org-health-ring > span {
+  border-color: #45483a !important;
+  border-top-color: var(--sq-equity) !important;
+  color: var(--sq-equity) !important;
+}
+
+/* --------------------------------------------------------------------------
+   DETAIL PAGES + SELLQUITY "MONEY STORY"
+   -------------------------------------------------------------------------- */
+.org-detail-photo-frame {
+  border-color: #4b4a40 !important;
+  border-radius: 3px !important;
+  background: #20211d !important;
+}
+
+.org-detail-photo-frame .fallback {
+  color: #77736a !important;
+}
+
+.org-detail-meta-row {
+  border-color: var(--sq-rule-soft) !important;
+}
+
+.org-detail-meta-row span,
+.org-timeline-copy small,
+.org-timeline-copy p {
+  color: var(--sq-stone) !important;
+}
+
+.org-detail-meta-row strong,
+.org-timeline-copy strong {
+  color: var(--sq-paper-soft) !important;
+}
+
+.org-timeline-row:not(:last-child)::after {
+  background: #49493f !important;
+}
+
+.org-timeline-dot {
+  border-color: #667839 !important;
+  background: #222819 !important;
+  color: var(--sq-equity) !important;
+}
+
+.org-money-story-card {
+  border-top: 2px solid var(--sq-copper) !important;
+  background:
+    linear-gradient(90deg, rgba(217,121,73,.03), transparent 45%),
+    var(--sq-surface) !important;
+}
+
+.org-money-story-card .org-card-head {
+  background: #1e1d19 !important;
+}
+
+.org-money-flow {
+  background: #171815 !important;
+}
+
+.org-money-line {
+  min-height: 51px !important;
+  border-color: var(--sq-rule-soft) !important;
+  font-size: .8rem !important;
+}
+
+.org-money-line span {
+  color: #b0aba0 !important;
+}
+
+.org-money-line strong {
+  color: var(--sq-paper) !important;
+  font-family: var(--sq-mono);
+}
+
+.org-money-line.subtotal {
+  background: #20211d !important;
+}
+
+.org-money-line.total {
+  min-height: 68px !important;
+  border-top: 2px solid var(--sq-equity) !important;
+  background: #22251c !important;
+}
+
+.org-money-line.total span {
+  color: #d7d2c7 !important;
+  font-family: var(--sq-display);
+  font-size: 1rem;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+
+.org-money-line.total strong {
+  color: var(--sq-equity) !important;
+  font-family: var(--sq-display) !important;
+  font-size: 1.35rem !important;
+}
+
+.org-money-stats {
+  border-top-color: var(--sq-rule) !important;
+  background: #181916 !important;
+}
+
+.org-money-stats > span {
+  border-left-color: var(--sq-rule-soft) !important;
+}
+
+.org-money-stats small {
+  color: var(--sq-dim) !important;
+  font-family: var(--sq-mono);
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.org-money-stats strong {
+  color: var(--sq-paper) !important;
+}
+
+.org-confidence-row {
+  border-color: #45453b !important;
+  border-radius: 3px !important;
+  background: #1b1c18 !important;
+}
+
+.org-confidence-row span {
+  color: #bab5aa !important;
+}
+
+/* --------------------------------------------------------------------------
+   EMPTY STATES + MANAGEMENT
+   -------------------------------------------------------------------------- */
+.org-empty {
+  color: var(--sq-dim) !important;
+}
+
+.org-empty strong {
+  color: var(--sq-paper-soft) !important;
+}
+
+.org-manage-card {
+  border-radius: 4px !important;
+}
+
+.org-manage-card:hover {
+  border-color: var(--sq-copper-soft) !important;
+  transform: none !important;
+  background: #1f201c !important;
+}
+
+.org-manage-card > svg,
+.org-manage-card span {
+  color: var(--sq-copper) !important;
+}
+
+.org-manage-card p {
+  color: var(--sq-stone) !important;
+}
+
+/* --------------------------------------------------------------------------
+   SPECIALIST WORKBENCHES — keep their functionality, pull them into the same
+   graphite / bone / equity-green world.
+   -------------------------------------------------------------------------- */
+.organized-main.frame-only .cogs-shell,
+.organized-main.frame-only .prep-v2 {
+  background: transparent !important;
+  color: var(--sq-paper) !important;
+}
+
+.organized-main.frame-only .cogs-shell main,
+.organized-main.frame-only .prep-v2 main {
+  color: var(--sq-paper) !important;
+}
+
+.organized-main.frame-only .cogs-shell .eyebrow,
+.organized-main.frame-only .prep-v2 .eyebrow {
+  color: var(--sq-equity) !important;
+}
+
+.organized-main.frame-only .cogs-shell h1,
+.organized-main.frame-only .prep-v2 h1,
+.organized-main.frame-only .cogs-shell h2,
+.organized-main.frame-only .prep-v2 h2 {
+  color: var(--sq-paper) !important;
+  font-family: var(--sq-display) !important;
+}
+
+.organized-main.frame-only .cogs-shell .workbench,
+.organized-main.frame-only .cogs-shell .toolbar,
+.organized-main.frame-only .prep-v2 .prep-workspace,
+.organized-main.frame-only .prep-v2 .queue-panel,
+.organized-main.frame-only .prep-v2 .station {
+  border-color: var(--sq-rule) !important;
+  border-radius: 5px !important;
+  background: var(--sq-surface) !important;
+}
+
+.organized-main.frame-only .cogs-shell input,
+.organized-main.frame-only .prep-v2 input,
+.organized-main.frame-only .prep-v2 textarea,
+.organized-main.frame-only .prep-v2 select {
+  border-color: #4a493f !important;
+  border-radius: 3px !important;
+  background: #121310 !important;
+  color: var(--sq-paper) !important;
+}
+
+.organized-main.frame-only .cogs-shell button,
+.organized-main.frame-only .prep-v2 button {
+  border-radius: 3px !important;
+}
+
+.organized-main.frame-only .cogs-shell .provider-tabs,
+.organized-main.frame-only .prep-v2 .tabs {
+  border-color: #49483e !important;
+  background: #151613 !important;
+}
+
+.organized-main.frame-only .cogs-shell .provider-tabs button.active,
+.organized-main.frame-only .prep-v2 .tabs button.active {
+  color: #151711 !important;
+  background: var(--sq-equity) !important;
+}
+
+.organized-main.frame-only .cogs-shell .save-all,
+.organized-main.frame-only .cogs-shell .save,
+.organized-main.frame-only .prep-v2 .primary,
+.organized-main.frame-only .prep-v2 button.primary {
+  border-color: #a7cb4d !important;
+  background: var(--sq-equity) !important;
+  color: #151711 !important;
+}
+
+/* legacy/global surfaces that appear inside the persistent shell */
+.organized-main.frame-only .panel,
+.organized-main.frame-only .metric-card,
+.organized-main.frame-only .connection-card {
+  border-color: var(--sq-rule) !important;
+  border-radius: 5px !important;
+  background: var(--sq-surface) !important;
+  box-shadow: none !important;
+}
+
+.organized-main.frame-only .button.primary {
+  background: var(--sq-equity) !important;
+  color: #151711 !important;
+}
+
+.organized-main.frame-only .button.secondary {
+  border-color: #4a493f !important;
+  background: #1b1c19 !important;
+  color: var(--sq-paper-soft) !important;
+}
+
+/* accessibility / focus */
+.organized-shell :focus-visible {
+  outline: 2px solid var(--sq-equity) !important;
+  outline-offset: 2px;
+}
+
+/* --------------------------------------------------------------------------
+   RESPONSIVE
+   -------------------------------------------------------------------------- */
+@media (max-width: 1180px) {
+  .organized-shell {
+    grid-template-columns: 230px minmax(0,1fr) !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .organized-shell {
+    display: block !important;
+  }
+
+  .organized-nav-caption {
+    display: none;
+  }
+
+  .organized-nav {
+    grid-template-columns: 1fr !important;
+  }
+
+  .organized-nav-home,
+  .organized-nav-group summary {
+    min-height: 44px !important;
+  }
+
+  .organized-sidebar {
+    border-right: 0 !important;
+    border-bottom: 1px solid var(--sq-rule) !important;
+  }
+}

@@ -1,19 +1,9 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import type { InventoryCategory } from '$lib/types';
+import { getInventoryCategoryDefinition } from '$lib/server/inventory-categories';
 import { observeSku } from '$lib/server/sku-control';
 import { currentWorkspaceId } from '$lib/server/workspace';
-
-const INVENTORY_CATEGORIES = new Set<InventoryCategory>([
-  'action_figures',
-  'baseball_cards',
-  'electronics',
-  'movies',
-  'video_games',
-  'trading_cards',
-  'collectibles',
-  'other'
-]);
 
 type InventoryPatch = {
   title?: unknown;
@@ -86,7 +76,7 @@ export const PATCH: RequestHandler = async ({ platform, params, request, locals 
   const sourceValue = Object.hasOwn(body, 'source') ? cleanNullable(body.source, 120) : undefined;
   const locationValue = Object.hasOwn(body, 'storageLocation') ? cleanNullable(body.storageLocation, 80) : undefined;
   const conditionValue = Object.hasOwn(body, 'conditionName') ? cleanNullable(body.conditionName, 80) : undefined;
-  const categoryValue = Object.hasOwn(body, 'category') ? cleanNullable(body.category, 40) as InventoryCategory | null | undefined : undefined;
+  const categoryValue = Object.hasOwn(body, 'category') ? cleanNullable(body.category, 80) as InventoryCategory | null | undefined : undefined;
   const purchasedValue = Object.hasOwn(body, 'purchasedAt') ? normalizedPurchaseDate(body.purchasedAt) : undefined;
 
   if (titleValue === null) return json({ error: 'Item title cannot be blank.' }, { status: 400 });
@@ -95,10 +85,29 @@ export const PATCH: RequestHandler = async ({ platform, params, request, locals 
   if (Object.hasOwn(body, 'source') && sourceValue === undefined) return json({ error: 'Enter a valid source.' }, { status: 400 });
   if (Object.hasOwn(body, 'storageLocation') && locationValue === undefined) return json({ error: 'Enter a valid storage location.' }, { status: 400 });
   if (Object.hasOwn(body, 'conditionName') && conditionValue === undefined) return json({ error: 'Enter a valid condition.' }, { status: 400 });
-  if (Object.hasOwn(body, 'category') && (!categoryValue || !INVENTORY_CATEGORIES.has(categoryValue))) {
-    return json({ error: 'Choose a valid inventory category.' }, { status: 400 });
+
+  if (Object.hasOwn(body, 'category')) {
+    if (!categoryValue) {
+      return json({ error: 'Choose a valid inventory category.' }, { status: 400 });
+    }
+
+    const definition = await getInventoryCategoryDefinition(
+      platform.env.DB,
+      workspaceId,
+      categoryValue
+    );
+
+    // Disabled built-ins remain valid historical identities. An item already
+    // assigned to one may be edited without forcing a category migration, but
+    // a newly selected category must currently be enabled.
+    if (!definition || (definition.enabled === false && categoryValue !== existing.category)) {
+      return json({ error: 'Choose a valid inventory category.' }, { status: 400 });
+    }
   }
-  if (Object.hasOwn(body, 'purchasedAt') && purchasedValue === undefined) return json({ error: 'Choose a valid purchase date.' }, { status: 400 });
+
+  if (Object.hasOwn(body, 'purchasedAt') && purchasedValue === undefined) {
+    return json({ error: 'Choose a valid purchase date.' }, { status: 400 });
+  }
 
   let purchaseCostCents = existing.purchaseCostCents;
   if (Object.hasOwn(body, 'purchaseCostCents')) {
