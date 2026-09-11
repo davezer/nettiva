@@ -1,0 +1,55 @@
+/* Sellquity mobile brand cleanup
+   Imported after midnight-polish.css and mobile-polish.css.
+   Removes the "logo inside a button" look and gives the brand a cleaner app-header lockup.
+*/
+
+@media (max-width: 760px) {
+  .organized-mobile-bar {
+    padding-left: max(15px, env(safe-area-inset-left)) !important;
+    padding-right: max(13px, env(safe-area-inset-right)) !important;
+  }
+
+  .organized-brand {
+    height: 50px !important;
+    gap: 11px !important;
+  }
+
+  .organized-brand-mark {
+    width: 35px !important;
+    height: 35px !important;
+    display: grid !important;
+    place-items: center !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  .organized-brand-mark img {
+    width: 31px !important;
+    height: 31px !important;
+    object-fit: contain !important;
+    filter: drop-shadow(0 3px 8px rgba(0,0,0,.28));
+  }
+
+  .organized-brand > span:last-child {
+    gap: 1px !important;
+  }
+
+  .organized-brand strong {
+    color: #f7f9fd !important;
+    font-size: .9rem !important;
+    font-weight: 800 !important;
+    line-height: 1.05 !important;
+    letter-spacing: .065em !important;
+  }
+
+  .organized-brand small {
+    margin-top: 3px !important;
+    color: #77859b !important;
+    font-size: .62rem !important;
+    font-weight: 570 !important;
+    line-height: 1 !important;
+    letter-spacing: .035em !important;
+  }
+}

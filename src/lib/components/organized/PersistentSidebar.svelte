@@ -8,12 +8,14 @@
     ClipboardCheck,
     FileSpreadsheet,
     Layers3,
+    Menu,
     PlugZap,
     ReceiptText,
     Settings,
     ShoppingBag,
     Tag,
-    UserRound
+    UserRound,
+    X
   } from '@lucide/svelte';
   import type { OrganizedShellCounts } from '$lib/server/organized-dashboard';
   import type { WorkspaceSummary } from '$lib/types';
@@ -32,6 +34,8 @@
     lastSyncedAt?: string | null;
     counts: OrganizedShellCounts;
   } = $props();
+
+  let mobileNavOpen = $state(false);
 
   const groups = [
     {
@@ -130,64 +134,97 @@
       minute: '2-digit'
     }).format(date)}`;
   }
+
+  function closeMobileNav(event: MouseEvent) {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('a')) mobileNavOpen = false;
+  }
 </script>
 
-<div class="organized-shell">
+<div class:mobile-nav-open={mobileNavOpen} class="organized-shell">
   <aside class="organized-sidebar">
-    <a class="organized-brand" href="/" aria-label="Sellquity home" data-sveltekit-preload-data="hover">
-      <span class="organized-brand-mark"><img src="/s-no-bg.png" alt="" /></span>
-      <span><strong>SELLQUITY</strong><small>Reseller ledger</small></span>
-    </a>
+    <div class="organized-mobile-bar">
+      <a class="organized-brand" href="/" aria-label="Sellquity home" data-sveltekit-preload-data="hover">
+        <span class="organized-brand-mark"><img src="/s-no-bg.png" alt="" /></span>
+        <span><strong>SELLQUITY</strong><small>Reseller ledger</small></span>
+      </a>
 
-    <div class="organized-nav-caption">
-      <span>WORKSPACE INDEX</span>
-      <b>{workspace.name}</b>
+      <button
+        class="organized-mobile-menu"
+        type="button"
+        aria-label={mobileNavOpen ? 'Close navigation' : 'Open navigation'}
+        aria-expanded={mobileNavOpen}
+        onclick={() => mobileNavOpen = !mobileNavOpen}
+      >
+        {#if mobileNavOpen}<X size={21} />{:else}<Menu size={21} />{/if}
+      </button>
     </div>
 
-    <nav class="organized-nav" aria-label="Primary navigation" data-sveltekit-preload-data="hover">
-      <a class:active={active === 'home'} class="organized-nav-home" href="/">
-        <span class="organized-nav-index">01</span>
-        <span>Home</span>
-      </a>
+    <div class="organized-mobile-drawer">
+      <div class="organized-nav-caption">
+        <span>WORKSPACE INDEX</span>
+        <b>{workspace.name}</b>
+      </div>
 
-      {#each groups as group}
-        <details class="organized-nav-group" open>
-          <summary>
-            <span class="organized-nav-index">{group.index}</span>
-            <span>{group.label}</span>
-            <ChevronDown class="organized-chevron" size={15} />
-          </summary>
-          <div class="organized-nav-children">
-            {#each group.items as item}
-              {@const ItemIcon = 'icon' in item ? item.icon : null}
-              <a class:active={active === item.key} href={item.href}>
-                {#if ItemIcon}<ItemIcon size={14} />{/if}
-                <span>{item.label}</span>
-                {#if 'count' in item && item.count}
-                  <b>{counts[item.count]}</b>
-                {/if}
-              </a>
-            {/each}
-          </div>
-        </details>
-      {/each}
-    </nav>
+      <nav
+        class="organized-nav"
+        aria-label="Primary navigation"
+        data-sveltekit-preload-data="hover"
+        onclick={closeMobileNav}
+      >
+        <a class:active={active === 'home'} class="organized-nav-home" href="/">
+          <span class="organized-nav-index">01</span>
+          <span>Home</span>
+        </a>
 
-    <div class="organized-sidebar-footer">
-      <a href="/account" class:active={active === 'account'}>
-        <UserRound size={17} />
-        <span>
-          <strong>{workspace.name}</strong>
-          <small>{workspace.role} · {workspace.plan}</small>
-        </span>
-        <ChevronRight size={14} />
-      </a>
-      <div class:online={connected} class="organized-connection-line">
-        <span></span>
-        <small>{connected ? formatSyncedAt(lastSyncedAt) : 'eBay not connected'}</small>
+        {#each groups as group}
+          <details class="organized-nav-group" open>
+            <summary>
+              <span class="organized-nav-index">{group.index}</span>
+              <span>{group.label}</span>
+              <ChevronDown class="organized-chevron" size={15} />
+            </summary>
+            <div class="organized-nav-children">
+              {#each group.items as item}
+                {@const ItemIcon = 'icon' in item ? item.icon : null}
+                <a class:active={active === item.key} href={item.href}>
+                  {#if ItemIcon}<ItemIcon size={14} />{/if}
+                  <span>{item.label}</span>
+                  {#if 'count' in item && item.count}
+                    <b>{counts[item.count]}</b>
+                  {/if}
+                </a>
+              {/each}
+            </div>
+          </details>
+        {/each}
+      </nav>
+
+      <div class="organized-sidebar-footer" onclick={closeMobileNav}>
+        <a href="/account" class:active={active === 'account'}>
+          <UserRound size={17} />
+          <span>
+            <strong>{workspace.name}</strong>
+            <small>{workspace.role} · {workspace.plan}</small>
+          </span>
+          <ChevronRight size={14} />
+        </a>
+        <div class:online={connected} class="organized-connection-line">
+          <span></span>
+          <small>{connected ? formatSyncedAt(lastSyncedAt) : 'eBay not connected'}</small>
+        </div>
       </div>
     </div>
   </aside>
+
+  {#if mobileNavOpen}
+    <button
+      class="organized-mobile-scrim"
+      type="button"
+      aria-label="Close navigation"
+      onclick={() => mobileNavOpen = false}
+    ></button>
+  {/if}
 
   <main class="organized-main frame-only">
     {@render children()}

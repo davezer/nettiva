@@ -5,7 +5,10 @@
   import '../accounting.css';
   import '../sellquity-theme.css';
   import '../midnight-polish.css';
+  import '../mobile-polish.css';
   import PersistentSidebar from '$lib/components/organized/PersistentSidebar.svelte';
+  import '../brand-cleanup.css';
+  import '../workspace-index-cleanup.css';
 
   let {
     children,
@@ -20,6 +23,7 @@
   <title>Sellquity · Resale intelligence</title>
   <meta name="description" content="Inventory, sales, accounting, and true profit for your resale business." />
   <meta name="theme-color" content="#0b1020" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <link rel="icon" href="/favicon.svg" />
 </svelte:head>
 
