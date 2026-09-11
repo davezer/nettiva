@@ -30,6 +30,21 @@ export async function signupAvailability(env: __PROTECTED_SELLQUITY_ENV__) {
   };
 }
 
+function uniqueOrigins(values: Array<string | undefined>) {
+  return [...new Set(
+    values
+      .map((value) => value?.trim())
+      .filter((value): value is string => Boolean(value))
+      .map((value) => {
+        try {
+          return new URL(value).origin;
+        } catch {
+          return value;
+        }
+      })
+  )];
+}
+
 export function createAuth(
   env: __PROTECTED_SELLQUITY_ENV__,
   requestOrigin?: string,
@@ -44,12 +59,14 @@ export function createAuth(
 
   const configuredURL = env.BETTER_AUTH_URL?.trim();
   const baseURL = configuredURL || requestOrigin;
+  const trustedOrigins = uniqueOrigins([baseURL, requestOrigin]);
   const requireVerification = emailVerificationRequired(env);
 
   return betterAuth({
     database: env.DB,
     secret,
     ...(baseURL ? { baseURL } : {}),
+    ...(trustedOrigins.length ? { trustedOrigins } : {}),
     emailAndPassword: {
       enabled: true,
       minPasswordLength: 12,
@@ -107,6 +124,7 @@ export function createAuth(
       updateAge: 60 * 60 * 24
     },
     advanced: {
+      ...(baseURL?.startsWith('https://') ? { useSecureCookies: true } : {}),
       ipAddress: {
         ipAddressHeaders: ['cf-connecting-ip']
       }

@@ -1,12 +1,5 @@
 <script lang="ts">
-  import {
-    Check,
-    KeyRound,
-    LoaderCircle,
-    LockKeyhole,
-    Mail,
-    UserRound
-  } from '@lucide/svelte';
+  import { Check, Eye, EyeOff, KeyRound, LoaderCircle, LockKeyhole, Mail, UserRound } from '@lucide/svelte';
   import { authClient } from '$lib/auth-client';
 
   let { data } = $props<{
@@ -24,15 +17,38 @@
   let name = $state('');
   let email = $state('');
   let password = $state('');
+  let showPassword = $state(false);
   let busy = $state(false);
   let message = $state<string | null>(null);
   let success = $state(false);
 
   $effect(() => {
-    if (data.canSignUp && data.signupMode === 'founder') {
-      createMode = true;
-    }
+    if (data.canSignUp && data.signupMode === 'founder') createMode = true;
   });
+
+  function describeAuthError(error: unknown) {
+    if (!error || typeof error !== 'object') return 'Authentication failed.';
+
+    const candidate = error as {
+      message?: unknown;
+      code?: unknown;
+      status?: unknown;
+    };
+
+    const base =
+      typeof candidate.message === 'string' && candidate.message.trim()
+        ? candidate.message.trim()
+        : 'Authentication failed';
+
+    const details = [
+      typeof candidate.code === 'string' && candidate.code ? candidate.code : null,
+      typeof candidate.status === 'string' || typeof candidate.status === 'number'
+        ? String(candidate.status)
+        : null
+    ].filter(Boolean);
+
+    return details.length ? `${base} (${details.join(' · ')})` : `${base}.`;
+  }
 
   async function submit(event: SubmitEvent) {
     event.preventDefault();
@@ -40,7 +56,7 @@
     success = false;
 
     if (!data.authConfigured) {
-      message = 'Auth is not configured yet. Add BETTER_AUTH_SECRET to .dev.vars.';
+      message = 'Auth is not configured yet.';
       return;
     }
 
@@ -53,35 +69,41 @@
 
     busy = true;
 
-    const result = createMode
-      ? await authClient.signUp.email({
-          name: name.trim(),
-          email: email.trim(),
-          password,
-          callbackURL: data.returnTo
-        })
-      : await authClient.signIn.email({
-          email: email.trim(),
-          password,
-          callbackURL: data.returnTo
-        });
+    try {
+      const result = createMode
+        ? await authClient.signUp.email({
+            name: name.trim(),
+            email: email.trim(),
+            password,
+            callbackURL: data.returnTo
+          })
+        : await authClient.signIn.email({
+            email: email.trim(),
+            password,
+            callbackURL: data.returnTo
+          });
 
-    busy = false;
+      busy = false;
 
-    if (result.error) {
-      message = result.error.message || 'Authentication failed.';
-      return;
+      if (result.error) {
+        message = describeAuthError(result.error);
+        return;
+      }
+
+      if (createMode && data.requiresEmailVerification) {
+        success = true;
+        message = 'Account created. Verify your email, then sign in.';
+        createMode = false;
+        password = '';
+        return;
+      }
+
+      window.location.assign(data.returnTo || '/');
+    } catch (error) {
+      busy = false;
+      console.error('Sellquity sign-in client failure', error);
+      message = describeAuthError(error);
     }
-
-    if (createMode && data.requiresEmailVerification) {
-      success = true;
-      message = 'Account created. Verify your email, then sign in.';
-      createMode = false;
-      password = '';
-      return;
-    }
-
-    window.location.assign(data.returnTo || '/');
   }
 </script>
 
@@ -105,20 +127,13 @@
     <section class="auth-copy">
       <span class="auth-kicker">{createMode ? 'FOUNDER SETUP' : 'SECURE ACCESS'}</span>
       <h1>{createMode ? 'Create your Sellquity account' : 'Welcome back'}</h1>
-      <p>
-        {createMode
-          ? 'This account will claim the existing founder workspace and become its owner.'
-          : 'Sign in to your private seller workspace.'}
-      </p>
+      <p>{createMode ? 'Create the founder account.' : 'Sign in to your private seller workspace.'}</p>
     </section>
 
     {#if !data.authConfigured}
       <div class="auth-alert">
         <LockKeyhole size={18} />
-        <span>
-          <strong>Local auth needs one secret.</strong>
-          Add <code>BETTER_AUTH_SECRET</code> to <code>.dev.vars</code>, then restart Sellquity.
-        </span>
+        <span><strong>Authentication is not configured.</strong></span>
       </div>
     {/if}
 
@@ -137,55 +152,33 @@
         <span>Email</span>
         <div class="auth-input">
           <Mail size={17} />
-          <input
-            bind:value={email}
-            type="email"
-            autocomplete="email"
-            placeholder="you@example.com"
-          />
+          <input bind:value={email} type="email" autocomplete="email" autocapitalize="none" spellcheck="false" inputmode="email" placeholder="you@example.com" />
         </div>
       </label>
 
       <label>
-        <span class="password-label">
-          Password
-          {#if !createMode}<a href="/forgot-password">Forgot password?</a>{/if}
-        </span>
+        <span class="password-label">Password {#if !createMode}<a href="/forgot-password">Forgot password?</a>{/if}</span>
         <div class="auth-input">
           <KeyRound size={17} />
-          <input
-            bind:value={password}
-            type="password"
-            autocomplete={createMode ? 'new-password' : 'current-password'}
-            placeholder="12+ characters"
-          />
+          <input bind:value={password} type={showPassword ? 'text' : 'password'} autocomplete={createMode ? 'new-password' : 'current-password'} autocapitalize="none" spellcheck="false" placeholder="12+ characters" />
+          <button class="password-toggle" type="button" aria-label={showPassword ? 'Hide password' : 'Show password'} onclick={() => showPassword = !showPassword}>
+            {#if showPassword}<EyeOff size={17} />{:else}<Eye size={17} />{/if}
+          </button>
         </div>
       </label>
 
-      {#if message}
-        <p class:success class="auth-message">{message}</p>
-      {/if}
+      {#if message}<p class:success class="auth-message">{message}</p>{/if}
 
-      <button disabled={busy || !data.authConfigured}>
+      <button class="submit-button" disabled={busy || !data.authConfigured}>
         {#if busy}<LoaderCircle class="spin" size={18} />{:else}<Check size={18} />{/if}
         {createMode ? 'Create founder account' : 'Sign in'}
       </button>
     </form>
 
-    {#if data.devMailbox}
-      <a class="mailbox-link" href="/dev/mailbox">Open local auth mailbox →</a>
-    {/if}
+    {#if data.devMailbox}<a class="mailbox-link" href="/dev/mailbox">Open local auth mailbox →</a>{/if}
 
     {#if data.signupMode === 'open' && data.canSignUp}
-      <button
-        class="mode-switch"
-        onclick={() => {
-          createMode = !createMode;
-          message = null;
-          success = false;
-        }}
-        type="button"
-      >
+      <button class="mode-switch" onclick={() => { createMode = !createMode; message = null; success = false; }} type="button">
         {createMode ? 'Already have an account? Sign in' : 'New to Sellquity? Create an account'}
       </button>
     {:else if data.signupMode === 'founder' && data.canSignUp}
@@ -198,171 +191,36 @@
 
 <style>
   :global(body) { margin: 0; }
-  .auth-shell {
-    min-height: 100vh;
-    display: grid;
-    place-items: center;
-    position: relative;
-    overflow: hidden;
-    padding: 24px;
-    background: #070b10;
-    color: #eaf0eb;
-  }
-  .auth-ambient {
-    position: absolute;
-    width: 420px;
-    height: 420px;
-    border-radius: 999px;
-    filter: blur(100px);
-    opacity: .13;
-    pointer-events: none;
-  }
+  .auth-shell { min-height: 100vh; display: grid; place-items: center; position: relative; overflow: hidden; padding: 24px; background: #070b10; color: #eaf0eb; }
+  .auth-ambient { position: absolute; width: 420px; height: 420px; border-radius: 999px; filter: blur(100px); opacity: .13; pointer-events: none; }
   .ambient-one { top: -180px; right: 8%; background: #01d4a5; }
   .ambient-two { bottom: -220px; left: 5%; background: #35c9ff; }
-  .auth-card {
-    position: relative;
-    width: min(430px, 100%);
-    border: 1px solid #303b46;
-    border-radius: 18px;
-    padding: 28px;
-    background: linear-gradient(145deg, rgba(18,24,32,.98), rgba(12,17,23,.98));
-    box-shadow: 0 35px 100px #0009;
-  }
-  .auth-brand {
-    display: flex;
-    align-items: center;
-    gap: 11px;
-    padding-bottom: 22px;
-    border-bottom: 1px solid #25303a;
-  }
-  .auth-brand > div { display: flex; flex-direction: column; gap: 1px; }
-  .auth-brand small { color: #687581; font-size: .67rem; }
+  .auth-card { position: relative; width: min(430px, 100%); border: 1px solid #303b46; border-radius: 18px; padding: 28px; background: linear-gradient(145deg, rgba(18,24,32,.98), rgba(12,17,23,.98)); box-shadow: 0 35px 100px #0009; }
+  .auth-brand { display: flex; align-items: center; gap: 11px; padding-bottom: 22px; border-bottom: 1px solid #25303a; }
   .auth-copy { padding: 24px 0 18px; }
-  .auth-kicker {
-    color: #01d4a5;
-    font: 800 .67rem "SFMono-Regular", Consolas, monospace;
-    letter-spacing: .14em;
-  }
+  .auth-kicker { color: #01d4a5; font: 800 .67rem "SFMono-Regular", Consolas, monospace; letter-spacing: .14em; }
   h1 { margin: 7px 0 6px; font-size: 1.65rem; line-height: 1.12; }
   .auth-copy p { margin: 0; color: #7d8995; font-size: .79rem; line-height: 1.5; }
   form { display: grid; gap: 13px; }
   label { display: grid; gap: 6px; color: #aeb8c1; font-size: .75rem; font-weight: 700; }
   .password-label { display: flex; justify-content: space-between; gap: 12px; }
   .password-label a { color: #8fa2b0; font-size: .68rem; text-decoration: none; }
-  .password-label a:hover { color: #01d4a5; }
-  .auth-input {
-    height: 43px;
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    border: 1px solid #34404b;
-    border-radius: 9px;
-    padding: 0 11px;
-    background: #090e13;
-  }
-  .auth-input:focus-within { border-color: #7ba837; box-shadow: 0 0 0 1px #7ba83744; }
+  .auth-input { height: 43px; display: flex; align-items: center; gap: 9px; border: 1px solid #34404b; border-radius: 9px; padding: 0 11px; background: #090e13; }
+  .auth-input:focus-within { border-color: #2b76c8; box-shadow: 0 0 0 1px #2b76c844; }
   .auth-input :global(svg) { flex: 0 0 auto; color: #697682; }
-  input {
-    min-width: 0;
-    flex: 1;
-    border: 0;
-    outline: 0;
-    background: transparent;
-    color: #eff5f0;
-    font: inherit;
-  }
-  form > button {
-    min-height: 44px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    margin-top: 3px;
-    border: 0;
-    border-radius: 9px;
-    background: #01d4a5;
-    color: #03131a;
-    font-weight: 900;
-    cursor: pointer;
-  }
-  form > button:disabled { opacity: .45; cursor: not-allowed; }
-  .auth-alert {
-    display: flex;
-    align-items: flex-start;
-    gap: 9px;
-    margin: 0 0 15px;
-    border: 1px solid #59471f;
-    border-radius: 9px;
-    padding: 10px 11px;
-    color: #d8ba73;
-    background: #221d11;
-    font-size: .72rem;
-    line-height: 1.45;
-  }
-  .auth-alert :global(svg) { flex: 0 0 auto; }
-  .auth-alert span { display: flex; flex-direction: column; gap: 2px; }
-  code { color: #e8d28e; }
-  .auth-message {
-    margin: 0;
-    border: 1px solid #5b2d34;
-    border-radius: 8px;
-    padding: 9px 10px;
-    color: #ff9ca3;
-    background: #281419;
-    font-size: .72rem;
-  }
-  .auth-message.success {
-    border-color: #15545a;
-    color: #78f6dd;
-    background: #0b252a;
-  }
-  .mailbox-link,
-  .mode-switch {
-    width: 100%;
-    display: block;
-    margin-top: 14px;
-    border: 0;
-    background: transparent;
-    color: #8fa2b0;
-    text-align: center;
-    text-decoration: none;
-    font-size: .72rem;
-    cursor: pointer;
-  }
-  .mailbox-link:hover,
-  .mode-switch:hover { color: #01d4a5; }
+  input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: #eff5f0; font: inherit; }
+  .password-toggle { width: 30px; height: 30px; flex: 0 0 auto; display: grid; place-items: center; border: 0; padding: 0; background: transparent; color: #7d8995; cursor: pointer; }
+  .submit-button { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; margin-top: 3px; border: 0; border-radius: 9px; background: #2f80d8; color: white; font-weight: 900; cursor: pointer; }
+  .submit-button:disabled { opacity: .45; cursor: not-allowed; }
+  .auth-alert { display: flex; align-items: flex-start; gap: 9px; margin: 0 0 15px; border: 1px solid #59471f; border-radius: 9px; padding: 10px 11px; color: #d8ba73; background: #221d11; font-size: .72rem; }
+  .auth-message { margin: 0; border: 1px solid #5b2d34; border-radius: 8px; padding: 9px 10px; color: #ff9ca3; background: #281419; font-size: .72rem; }
+  .auth-message.success { border-color: #15545a; color: #78f6dd; background: #0b252a; }
+  .mailbox-link, .mode-switch { width: 100%; display: block; margin-top: 14px; border: 0; background: transparent; color: #8fa2b0; text-align: center; text-decoration: none; font-size: .72rem; cursor: pointer; }
   .founder-note { margin: 15px 0 0; color: #5f6c78; text-align: center; font-size: .68rem; }
   :global(.spin) { animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-
-
-  .sellquity-auth-brand {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .sellquity-wordmark-panel {
-    width: min(250px, 78vw);
-    display: flex;
-    align-items: center;
-    border: 1px solid #1b4f75;
-    border-radius: 14px;
-    padding: 8px 13px;
-    background: linear-gradient(145deg, #ffffff 0%, #eef8ff 100%);
-    box-shadow: 0 14px 34px #0069e326, 0 0 0 1px #01d0e90d;
-  }
-
-  .sellquity-wordmark-panel img {
-    display: block;
-    width: 100%;
-    height: auto;
-  }
-
-  .sellquity-auth-brand > small {
-    color: #8296ad;
-    font-size: .72rem;
-    letter-spacing: .12em;
-    text-transform: uppercase;
-  }
+  .sellquity-auth-brand { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .sellquity-wordmark-panel { width: min(250px, 78vw); display: flex; align-items: center; border: 1px solid #1b4f75; border-radius: 14px; padding: 8px 13px; background: linear-gradient(145deg, #ffffff 0%, #eef8ff 100%); box-shadow: 0 14px 34px #0069e326, 0 0 0 1px #01d0e90d; }
+  .sellquity-wordmark-panel img { display: block; width: 100%; height: auto; }
+  .sellquity-auth-brand > small { color: #8296ad; font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; }
 </style>

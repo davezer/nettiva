@@ -4,6 +4,15 @@
   "main": "worker.js",
   "compatibility_date": "2026-09-02",
   "compatibility_flags": ["nodejs_als"],
+  "workers_dev": true,
+"preview_urls": true,
+
+  "routes": [
+  {
+    "pattern": "app.sellquity.com",
+    "custom_domain": true
+  }
+],
   "assets": {
     "binding": "ASSETS",
     "directory": ".svelte-kit/cloudflare"

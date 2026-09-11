@@ -11,9 +11,6 @@ const PUBLIC_PATHS = new Set([
   '/dev/mailbox',
   '/favicon.ico',
   '/robots.txt',
-
-  // eBay calls this directly from outside Sellquity. It must never require
-  // a Sellquity user session.
   '/api/ebay/account-deletion'
 ]);
 
@@ -38,10 +35,7 @@ function isOnboardingPath(pathname: string) {
 }
 
 function isOnboardingDependency(pathname: string) {
-  return (
-    pathname === '/api/ebay/connect' ||
-    pathname === '/api/ebay/callback'
-  );
+  return pathname === '/api/ebay/connect' || pathname === '/api/ebay/callback';
 }
 
 function unauthorizedApi(message = 'Authentication required.', status = 401) {
@@ -67,7 +61,6 @@ export const handle: Handle = async ({ event, resolve }) => {
 
   if (!event.platform) {
     if (publicPath) return resolve(event);
-
     return new Response(
       'Cloudflare runtime bindings are unavailable. Sellquity auth requires the local D1 runtime.',
       { status: 503 }
@@ -77,7 +70,6 @@ export const handle: Handle = async ({ event, resolve }) => {
   const secret = event.platform.env.BETTER_AUTH_SECRET?.trim();
   if (!secret) {
     if (publicPath) return resolve(event);
-
     return new Response(
       'Sellquity auth is not configured. Add BETTER_AUTH_SECRET to .dev.vars.',
       { status: 503 }
@@ -90,9 +82,23 @@ export const handle: Handle = async ({ event, resolve }) => {
     event.platform.context
   );
 
-  // Better Auth owns its session, verification, reset, and account endpoints.
   if (isAuthPath(pathname)) {
-    return svelteKitHandler({ event, resolve, auth, building });
+    const response = await svelteKitHandler({ event, resolve, auth, building });
+
+    if (response.status >= 400) {
+      console.error('Sellquity auth request failed', {
+        pathname,
+        status: response.status,
+        origin: event.request.headers.get('origin'),
+        host: event.request.headers.get('host'),
+        secFetchSite: event.request.headers.get('sec-fetch-site'),
+        secFetchMode: event.request.headers.get('sec-fetch-mode'),
+        forwardedProto: event.request.headers.get('x-forwarded-proto'),
+        userAgent: event.request.headers.get('user-agent')
+      });
+    }
+
+    return response;
   }
 
   let session: Awaited<ReturnType<typeof auth.api.getSession>> = null;
