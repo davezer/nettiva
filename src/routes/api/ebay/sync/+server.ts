@@ -1,12 +1,15 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { syncEbayAutomated } from '$lib/server/ebay-history-sync';
-import { reconcileRecentEbaySellingFees } from '$lib/server/ebay-fee-reconcile';
+import { syncRecentEbayOrderEarnings } from '$lib/server/ebay-order-earnings';
 import { currentWorkspaceId } from '$lib/server/workspace';
 
 export const POST: RequestHandler = async ({ platform, locals }) => {
   if (!platform) {
-    return json({ error: 'Cloudflare runtime unavailable.' }, { status: 500 });
+    return json(
+      { error: 'Cloudflare runtime unavailable.' },
+      { status: 500 }
+    );
   }
 
   if (locals.workspaceRole === 'member') {
@@ -19,12 +22,17 @@ export const POST: RequestHandler = async ({ platform, locals }) => {
   const workspaceId = currentWorkspaceId(locals);
 
   try {
-    const result = await syncEbayAutomated(platform.env, workspaceId);
+    // Keep the existing sync for listings, orders, labels, refunds, payouts,
+    // and the full ledger.
+    const result = await syncEbayAutomated(
+      platform.env,
+      workspaceId
+    );
 
-    // The normal sync imports the authoritative Finances API rows first.
-    // Then rebuild recent SALE fee rows using eBay's current schema so
-    // orderLineItemId / totalFeeAmount variants cannot leave fees at $0.
-    const feeReconciliation = await reconcileRecentEbaySellingFees(
+    // Then let eBay's dedicated Order Earnings resource replace only the
+    // order-level selling-fee calculation. This is authoritative for recent
+    // seller expenses and avoids the old $0 selling-fee problem.
+    const orderEarnings = await syncRecentEbayOrderEarnings(
       platform.env,
       workspaceId
     );
@@ -32,7 +40,7 @@ export const POST: RequestHandler = async ({ platform, locals }) => {
     return json({
       ok: true,
       ...result,
-      feeReconciliation
+      orderEarnings
     });
   } catch (error) {
     console.error('Sellquity eBay sync failed', error);
