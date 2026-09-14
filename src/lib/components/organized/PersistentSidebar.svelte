@@ -170,9 +170,8 @@
         class="organized-nav"
         aria-label="Primary navigation"
         data-sveltekit-preload-data="hover"
-        onclick={closeMobileNav}
       >
-        <a class:active={active === 'home'} class="organized-nav-home" href="/">
+        <a class:active={active === 'home'} class="organized-nav-home" href="/" onclick={() => mobileNavOpen = false}>
           <span class="organized-nav-index">01</span>
           <span>Home</span>
         </a>
@@ -187,7 +186,7 @@
             <div class="organized-nav-children">
               {#each group.items as item}
                 {@const ItemIcon = 'icon' in item ? item.icon : null}
-                <a class:active={active === item.key} href={item.href}>
+                <a class:active={active === item.key} href={item.href} onclick={() => mobileNavOpen = false}>
                   {#if ItemIcon}<ItemIcon size={14} />{/if}
                   <span>{item.label}</span>
                   {#if 'count' in item && item.count}
@@ -200,8 +199,8 @@
         {/each}
       </nav>
 
-      <div class="organized-sidebar-footer" onclick={closeMobileNav}>
-        <a href="/account" class:active={active === 'account'}>
+      <div class="organized-sidebar-footer">
+        <a href="/account" class:active={active === 'account'}  onclick={() => mobileNavOpen = false}>
           <UserRound size={17} />
           <span>
             <strong>{workspace.name}</strong>
