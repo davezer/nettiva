@@ -9,6 +9,10 @@ const PUBLIC_PATHS = new Set([
   '/forgot-password',
   '/reset-password',
   '/dev/mailbox',
+  '/privacy',
+  '/terms',
+  '/support',
+  '/api/support',
   '/favicon.ico',
   '/robots.txt',
   '/api/ebay/account-deletion'
@@ -104,9 +108,7 @@ export const handle: Handle = async ({ event, resolve }) => {
   let session: Awaited<ReturnType<typeof auth.api.getSession>> = null;
 
   try {
-    session = await auth.api.getSession({
-      headers: event.request.headers
-    });
+    session = await auth.api.getSession({ headers: event.request.headers });
   } catch (error) {
     console.error('Sellquity session lookup failed', error);
   }
@@ -141,10 +143,7 @@ export const handle: Handle = async ({ event, resolve }) => {
       return unauthorizedApi('No active Sellquity workspace membership was found.', 403);
     }
 
-    return new Response(
-      'No active Sellquity workspace membership was found.',
-      { status: 403 }
-    );
+    return new Response('No active Sellquity workspace membership was found.', { status: 403 });
   }
 
   event.locals.authUserId = session.user.id;
@@ -196,10 +195,7 @@ export const handle: Handle = async ({ event, resolve }) => {
   }
 
   if (pathname === '/login') {
-    return Response.redirect(
-      new URL(onboardingComplete ? '/' : '/onboarding', event.url),
-      303
-    );
+    return Response.redirect(new URL(onboardingComplete ? '/' : '/onboarding', event.url), 303);
   }
 
   return svelteKitHandler({ event, resolve, auth, building });

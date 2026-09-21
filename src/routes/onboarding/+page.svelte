@@ -1,14 +1,13 @@
 <script lang="ts">
   import {
     ArrowRight,
-    Boxes,
     Check,
     ExternalLink,
     LoaderCircle,
     PlugZap,
     RefreshCw,
     ShieldCheck,
-    Tag
+    Sparkles
   } from '@lucide/svelte';
 
   type Step = 'workspace' | 'ebay' | 'inventory' | 'complete';
@@ -57,7 +56,7 @@
     const result = await response.json().catch(() => ({})) as { error?: string };
     busy = false;
     if (!response.ok) {
-      message = result.error || 'Could not update onboarding.';
+      message = result.error || 'Could not update setup.';
       return false;
     }
     window.location.reload();
@@ -75,6 +74,7 @@
 
   async function finish() {
     busy = true;
+    message = null;
     const response = await fetch('/api/onboarding', {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
@@ -83,7 +83,7 @@
     const result = await response.json().catch(() => ({})) as { error?: string };
     busy = false;
     if (!response.ok) {
-      message = result.error || 'Could not finish onboarding.';
+      message = result.error || 'Could not finish setup.';
       return;
     }
     window.location.assign('/');
@@ -95,7 +95,7 @@
 </script>
 
 <svelte:head>
-  <title>Set up your workspace · Sellquity</title>
+  <title>Set up Sellquity</title>
   <meta name="robots" content="noindex,nofollow" />
 </svelte:head>
 
@@ -107,12 +107,12 @@
 
   <main>
     <section class="intro">
-      <span class="kicker">WORKSPACE ONBOARDING</span>
-      <h1>{step === 'complete' ? 'Your workspace is ready.' : 'Set Sellquity up around your business.'}</h1>
-      <p>This wizard creates the minimum business context Sellquity needs before automated marketplace data starts flowing.</p>
+      <span class="kicker">GET STARTED</span>
+      <h1>{step === 'complete' ? 'You’re ready to go.' : 'Set up Sellquity in a couple of minutes.'}</h1>
+      <p>Tell us about your business, connect eBay if you want automatic syncing, and start tracking what you own and what you make.</p>
     </section>
 
-    <div class="progress" aria-label="Onboarding progress">
+    <div class="progress" aria-label="Setup progress">
       {#each [1, 2, 3] as number}
         <span class:active={stepNumber === number} class:done={stepNumber > number}>{stepNumber > number ? '✓' : number}</span>
         {#if number < 3}<i class:done={stepNumber > number}></i>{/if}
@@ -125,15 +125,32 @@
       <section class="card">
         <div class="icon"><ShieldCheck size={24} /></div>
         <span class="kicker">STEP 1 OF 3</span>
-        <h2>Business identity</h2>
-        <p>Name the workspace that owns this inventory, accounting, eBay connection, and SKU namespace.</p>
+        <h2>Tell us about your business</h2>
+        <p>This is the name you’ll see throughout Sellquity. You can change your setup later.</p>
+
         <form onsubmit={saveWorkspace}>
-          <label class="wide"><span>Business / workspace name</span><input bind:value={businessName} maxlength="80" placeholder="Rare Frequency" required /></label>
-          <label><span>Country</span><input bind:value={countryCode} maxlength="2" /></label>
-          <label><span>Currency</span><input bind:value={currencyCode} maxlength="3" /></label>
+          <label class="wide">
+            <span>Business name</span>
+            <input bind:value={businessName} maxlength="80" placeholder="Dave's Collectibles" required />
+          </label>
+
+          <label>
+            <span>Country</span>
+            <select bind:value={countryCode}>
+              <option value="US">United States</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Currency</span>
+            <select bind:value={currencyCode}>
+              <option value="USD">US Dollar (USD)</option>
+            </select>
+          </label>
+
           <button class="primary wide" disabled={busy || businessName.trim().length < 2}>
             {#if busy}<LoaderCircle class="spin" size={17} />{:else}<ArrowRight size={17} />{/if}
-            Continue to eBay
+            Continue
           </button>
         </form>
       </section>
@@ -142,16 +159,19 @@
       <section class="card">
         <div class="icon"><PlugZap size={24} /></div>
         <span class="kicker">STEP 2 OF 3</span>
-        <h2>{data.connected ? 'eBay is connected' : 'Connect your eBay seller account'}</h2>
+        <h2>{data.connected ? 'eBay is connected' : 'Connect your eBay account'}</h2>
         <p>
           {data.connected
-            ? 'This workspace already has an encrypted eBay OAuth connection. You can continue.'
-            : 'Connecting eBay will eventually let Sellquity pull listings, scheduled listings, orders, and finances directly. You can skip this while API approval is pending.'}
+            ? 'Sellquity can now keep your eBay listings and sales data up to date.'
+            : 'Connect eBay to automatically bring in listings, sales, fees, and marketplace activity. Sellquity does not edit your live listings.'}
         </p>
 
         <div class="ebay-state" class:connected={data.connected}>
           <PlugZap size={18} />
-          <span><strong>{data.connected ? 'Connected' : 'Not connected'}</strong>{data.connected ? 'OAuth credentials belong to this workspace.' : 'No eBay OAuth account is attached yet.'}</span>
+          <span>
+            <strong>{data.connected ? 'Connected' : 'Not connected yet'}</strong>
+            {data.connected ? 'Automatic eBay syncing is available.' : 'You can also skip this and connect eBay later from Settings.'}
+          </span>
         </div>
 
         <div class="actions">
@@ -162,34 +182,31 @@
             </button>
           {:else}
             <a class="primary link-button" href="/api/ebay/connect"><ExternalLink size={17} /> Connect eBay</a>
-            <button class="secondary" disabled={busy} onclick={() => continueEbay(true)}>
-              Do this later
-            </button>
+            <button class="secondary" disabled={busy} onclick={() => continueEbay(true)}>I’ll do this later</button>
           {/if}
         </div>
       </section>
 
     {:else if step === 'inventory'}
-      <section class="card">
-        <div class="icon"><Boxes size={24} /></div>
+      <section class="card ready-card">
+        <div class="icon"><Sparkles size={24} /></div>
         <span class="kicker">STEP 3 OF 3</span>
-        <h2>Inventory identity</h2>
-        <p>Sellquity uses stable SKU/custom-label identities so purchase cost survives listing-title changes and future eBay reconciliation.</p>
+        <h2>Sellquity is ready</h2>
+        <p>We’ll handle the behind-the-scenes inventory IDs and bookkeeping structure for you. You can just start using the app.</p>
 
         <div class="stats">
-          <div><Boxes size={18} /><span><strong>{data.inventoryCount}</strong> inventory records</span></div>
-          <div><Tag size={18} /><span><strong>{data.reservationCount}</strong> SKU reservations</span></div>
+          <div><span><strong>{data.inventoryCount}</strong> inventory item{data.inventoryCount === 1 ? '' : 's'} ready</span></div>
+          <div><span><strong>{data.connected ? 'On' : 'Off'}</strong> eBay sync</span></div>
         </div>
 
         <div class="convention">
-          <strong>Current convention</strong>
-          <p>Category prefix + permanent sequence, such as AFG-0001, MOV-0001, ELC-0001. Numbers never recycle.</p>
-          <small>Custom per-workspace prefix editing comes in the dedicated SKU preferences pass; this wizard confirms the identity model without changing established numbers.</small>
+          <strong>What happens next?</strong>
+          <p>Start with Home to see your business at a glance, add purchases from Inventory, or connect eBay later from Settings.</p>
         </div>
 
         <button class="primary full" disabled={busy} onclick={finish}>
           {#if busy}<LoaderCircle class="spin" size={17} />{:else}<Check size={17} />{/if}
-          Finish onboarding
+          Open Sellquity
         </button>
       </section>
 
@@ -198,10 +215,10 @@
         <div class="complete-icon"><Check size={30} /></div>
         <span class="kicker">SETUP COMPLETE</span>
         <h2>{data.workspace?.name ?? 'Your workspace'} is ready</h2>
-        <p>Authentication, tenant isolation, recovery infrastructure, and workspace onboarding are all in place.</p>
+        <p>You’re all set. Head to Home to see the current state of your resale business.</p>
         <div class="actions center">
           <a class="primary link-button" href="/">Open Sellquity</a>
-          <button class="secondary" disabled={busy} onclick={restart}><RefreshCw size={16} /> Run wizard again</button>
+          <button class="secondary" disabled={busy} onclick={restart}><RefreshCw size={16} /> Run setup again</button>
         </div>
       </section>
     {/if}
@@ -232,9 +249,8 @@
   form { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; margin-top: 20px; }
   label { display: grid; gap: 6px; color: #aab4bd; font-size: .72rem; font-weight: 700; }
   .wide { grid-column: 1 / -1; }
-  input { width: 100%; box-sizing: border-box; border: 1px solid #35414c; border-radius: 8px; padding: 10px 11px; outline: 0; background: #090e13; color: #edf3ee; font: inherit; text-transform: none; }
-  label:not(.wide) input { text-transform: uppercase; }
-  input:focus { border-color: #0a8fc4; box-shadow: 0 0 0 1px #0a8fc455; }
+  input, select { width: 100%; box-sizing: border-box; border: 1px solid #35414c; border-radius: 8px; padding: 10px 11px; outline: 0; background: #090e13; color: #edf3ee; font: inherit; }
+  input:focus, select:focus { border-color: #0a8fc4; box-shadow: 0 0 0 1px #0a8fc455; }
   button, .link-button { min-height: 42px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border-radius: 8px; padding: 0 14px; font: inherit; font-size: .73rem; font-weight: 850; text-decoration: none; cursor: pointer; }
   button:disabled { opacity: .45; cursor: not-allowed; }
   .primary { border: 0; background: #01d4a5; color: #03131a; }
@@ -248,19 +264,16 @@
   .ebay-state span { display: flex; flex-direction: column; gap: 2px; }
   .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 18px 0 10px; }
   .stats > div { display: flex; align-items: center; gap: 9px; padding: 13px; color: #87949f; font-size: .72rem; }
-  .stats :global(svg) { color: #01d4a5; }
   .stats strong { color: #e5ece6; font-size: 1rem; }
   .convention { padding: 14px; }
   .convention > strong { color: #dfe7e1; font-size: .78rem; }
   .convention p { margin: 5px 0; color: #8a97a2; font-size: .73rem; line-height: 1.5; }
-  .convention small { color: #65727d; font-size: .66rem; line-height: 1.5; }
   .complete-card { text-align: center; }
   .complete-icon { margin-inline: auto; }
   .message { margin-bottom: 14px; border: 1px solid #5b2d34; border-radius: 9px; padding: 10px 12px; color: #ff9ca3; background: #281419; font-size: .73rem; }
   :global(.spin) { animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
   @media (max-width: 560px) { header { padding: 0 16px; } form { grid-template-columns: 1fr; } .wide { grid-column: auto; } .stats { grid-template-columns: 1fr; } }
-
 
   .sellquity-icon-mark {
     overflow: hidden;

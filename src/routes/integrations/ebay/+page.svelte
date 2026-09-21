@@ -1,909 +1,302 @@
 <script lang="ts">
-    import { invalidateAll } from '$app/navigation';
-    import {
-        AlertTriangle,
-        ArrowLeft,
-        Check,
-        Clipboard,
-        KeyRound,
-        Link2,
-        LoaderCircle,
-        LockKeyhole,
-        PlugZap,
-        RefreshCw,
-        ShieldCheck,
-        Unplug,
-    } from '@lucide/svelte';
-    import type { PageData } from './$types';
+  import { invalidateAll } from '$app/navigation';
+  import {
+    AlertTriangle,
+    ArrowLeft,
+    Check,
+    Clipboard,
+    LoaderCircle,
+    LockKeyhole,
+    PlugZap,
+    RefreshCw,
+    ShieldCheck,
+    Unplug
+  } from '@lucide/svelte';
+  import type { PageData } from './$types';
 
-    let { data }: { data: PageData } = $props();
-    let checking = $state(false);
-    let disconnecting = $state(false);
-    let message = $state<string | null>(null);
-    let error = $state<string | null>(null);
-    let copied = $state(false);
-    let syncing = $state(false);
+  let { data }: { data: PageData } = $props();
+  let checking = $state(false);
+  let disconnecting = $state(false);
+  let syncing = $state(false);
+  let copied = $state(false);
+  let message = $state<string | null>(null);
+  let error = $state<string | null>(null);
 
-    function shortDate(value: string | number | null | undefined) {
-        if (!value) return 'Not available';
-        const date = new Date(value);
-        if (!Number.isFinite(date.getTime())) return 'Not available';
-        return new Intl.DateTimeFormat('en-US', {
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric',
-        }).format(date);
+  function shortDateTime(value: string | number | null | undefined) {
+    if (!value) return 'Not yet';
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return 'Not yet';
+    return new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit'
+    }).format(date);
+  }
+
+  async function copyCallback() {
+    try {
+      await navigator.clipboard.writeText(data.callbackUrl);
+      copied = true;
+      setTimeout(() => (copied = false), 1500);
+    } catch {
+      error = 'Could not copy the callback URL.';
     }
+  }
 
-    function scopeLabel(scope: string) {
-        if (scope.endsWith('/api_scope')) return 'eBay identity';
-        if (scope.endsWith('/sell.inventory.readonly')) return 'Inventory read';
-        if (scope.endsWith('/sell.fulfillment.readonly')) return 'Orders read';
-        if (scope.endsWith('/sell.finances')) return 'Finances';
-        return scope;
+  async function verifyConnection() {
+    checking = true;
+    message = null;
+    error = null;
+    try {
+      const response = await fetch('/api/ebay/health', { method: 'POST' });
+      const result = await response.json() as { error?: string; userId?: string | null };
+      if (!response.ok) {
+        error = result.error ?? 'Connection check failed.';
+        return;
+      }
+      message = result.userId ? `eBay connection verified for ${result.userId}.` : 'eBay connection verified.';
+      await invalidateAll();
+    } catch {
+      error = 'Sellquity could not verify the eBay connection.';
+    } finally {
+      checking = false;
     }
+  }
 
-    async function copyCallback() {
-        try {
-            await navigator.clipboard.writeText(data.callbackUrl);
-            copied = true;
-            setTimeout(() => (copied = false), 1500);
-        } catch {
-            error = 'Could not copy the callback URL.';
-        }
+  async function syncLiveData() {
+    syncing = true;
+    message = null;
+    error = null;
+    try {
+      const response = await fetch('/api/ebay/sync', { method: 'POST' });
+      if (!response.ok) {
+        error = 'Sellquity could not sync eBay right now.';
+        return;
+      }
+      message = 'eBay data synced successfully.';
+      await invalidateAll();
+    } catch {
+      error = 'Sellquity could not sync eBay right now.';
+    } finally {
+      syncing = false;
     }
+  }
 
-    async function verifyConnection() {
-        checking = true;
-        message = null;
-        error = null;
-        try {
-            const response = await fetch('/api/ebay/health', {
-                method: 'POST',
-            });
-            const result = (await response.json()) as {
-                error?: string;
-                userId?: string | null;
-            };
-            if (!response.ok) {
-                error = result.error ?? 'Connection check failed.';
-                return;
-            }
-            message = result.userId
-                ? `Connected to ${result.userId}. eBay API access verified.`
-                : 'eBay API access verified.';
-            await invalidateAll();
-        } catch {
-            error = 'Sellquity could not verify the eBay connection.';
-        } finally {
-            checking = false;
-        }
+  async function disconnect() {
+    if (!confirm('Disconnect eBay? Your imported inventory, sales, purchase costs, and accounting history will stay in Sellquity.')) return;
+    disconnecting = true;
+    message = null;
+    error = null;
+    try {
+      const response = await fetch('/api/ebay/disconnect', { method: 'POST' });
+      const result = await response.json().catch(() => null) as { error?: string } | null;
+      if (!response.ok) {
+        error = result?.error ?? 'Could not disconnect eBay.';
+        return;
+      }
+      message = 'eBay disconnected. Your Sellquity data was kept.';
+      await invalidateAll();
+    } catch {
+      error = 'Could not disconnect eBay.';
+    } finally {
+      disconnecting = false;
     }
-
-    async function syncLiveData() {
-        syncing = true;
-        message = null;
-        error = null;
-
-        try {
-            const response = await fetch('/api/ebay/sync', {
-                method: 'POST',
-            });
-
-            if (!response.ok) {
-                error = 'Sellquity could not sync live eBay data.';
-                return;
-            }
-
-            message = 'Live eBay data synced successfully.';
-            await invalidateAll();
-        } catch {
-            error = 'Sellquity could not sync live eBay data.';
-        } finally {
-            syncing = false;
-        }
-    }
-
-    async function disconnect() {
-        if (
-            !confirm(
-                'Disconnect eBay? Inventory, sales, COGS and accounting history will stay intact.',
-            )
-        )
-            return;
-        disconnecting = true;
-        message = null;
-        error = null;
-        try {
-            const response = await fetch('/api/ebay/disconnect', {
-                method: 'POST',
-            });
-            const result = (await response.json()) as { error?: string };
-            if (!response.ok) {
-                error = result.error ?? 'Could not disconnect eBay.';
-                return;
-            }
-            message = 'eBay disconnected. Business data was preserved.';
-            await invalidateAll();
-        } catch {
-            error = 'Could not disconnect eBay.';
-        } finally {
-            disconnecting = false;
-        }
-    }
+  }
 </script>
 
 <svelte:head><title>eBay connection · Sellquity</title></svelte:head>
 
-<div class="shell">
-    <header>
-        <a href="/"><ArrowLeft size={16} /> Sellquity</a><span
-            ><PlugZap size={14} /> EBAY AUTOMATION</span
-        >
-    </header>
+<div class="connection-shell">
+  <header class="topbar">
+    <a href="/manage"><ArrowLeft size={16} /> Settings</a>
+    <span><PlugZap size={14} /> EBAY</span>
+  </header>
 
-    <main>
-        <section class="hero">
-            <div>
-                <span class="eyebrow">STEP 01 · CONNECTION</span>
-                <h1>Connect the seller account.</h1>
-                <p>
-                    OAuth gives Sellquity a secure server-side connection to
-                    eBay. Tokens are encrypted and refreshed automatically.
-                </p>
-            </div>
-            <div class:connected={Boolean(data.connection)} class="state-card">
-                {#if data.connection}<Link2 size={22} /><span
-                        ><small>EBAY ACCOUNT</small><strong
-                            >{data.connection.displayName}</strong
-                        ><em
-                            >{data.connection.status === 'error'
-                                ? 'Needs attention'
-                                : 'Connected'}</em
-                        ></span
-                    >
-                {:else}<Unplug size={22} /><span
-                        ><small>EBAY ACCOUNT</small><strong
-                            >Not connected</strong
-                        ><em
-                            >{data.configured
-                                ? 'Ready to authorize'
-                                : 'Configuration needed'}</em
-                        ></span
-                    >{/if}
-            </div>
-        </section>
+  <main>
+    <section class="hero">
+      <div>
+        <span class="eyebrow">SELLING CHANNEL</span>
+        <h1>eBay</h1>
+        <p>Connect your seller account so Sellquity can keep listings, sales, fees, and shipping costs up to date.</p>
+      </div>
 
-        {#if message}<div class="notice ok">
-                <Check size={16} />{message}
-            </div>{/if}
-        {#if error}<div class="notice bad">
-                <AlertTriangle size={16} />{error}
-            </div>{/if}
-
+      <div class:connected={Boolean(data.connection)} class="connection-state">
         {#if data.connection}
-            <section class="grid">
-                <article class="card primary">
-                    <div class="card-head">
-                        <div>
-                            <span class="eyebrow">LIVE CONNECTION</span>
-                            <h2>{data.connection.displayName}</h2>
-                        </div>
-                        <span
-                            class:bad={data.connection.status === 'error'}
-                            class="pill"
-                            >{data.connection.status === 'error'
-                                ? 'Attention'
-                                : 'Connected'}</span
-                        >
-                    </div>
-                    <div class="facts">
-                        <span
-                            ><small>eBay user</small><strong
-                                >{String(
-                                    data.connection.metadata.userId ??
-                                        data.connection.displayName,
-                                )}</strong
-                            ></span
-                        >
-                        <span
-                            ><small>Inventory API</small><strong
-                                >{String(
-                                    data.connection.metadata
-                                        .inventoryApiVersion ?? 'Ready',
-                                )}</strong
-                            ></span
-                        >
-                        <span
-                            ><small>Connected</small><strong
-                                >{shortDate(
-                                    data.connection.connectedAt,
-                                )}</strong
-                            ></span
-                        >
-                        <span
-                            ><small>Refresh token</small><strong
-                                >{shortDate(
-                                    data.connection.refreshTokenExpiresAt,
-                                )}</strong
-                            ></span
-                        >
-                    </div>
-                    <div class="token">
-                        <RefreshCw size={18} /><span
-                            ><small>AUTOMATIC TOKEN REFRESH</small><strong
-                                >Sellquity renews short-lived access tokens for
-                                you.</strong
-                            ><em>No copy/paste token maintenance.</em></span
-                        >
-                    </div>
-                    <div class="actions">
-                        <button
-                            class="primary-btn"
-                            disabled={checking || data.role === 'member'}
-                            onclick={verifyConnection}
-                            >{#if checking}<LoaderCircle
-                                    class="spin"
-                                    size={16}
-                                />{:else}<ShieldCheck size={16} />{/if}{checking
-                                ? 'Verifying…'
-                                : 'Verify connection'}</button
-                        >
-                        <button
-  class="primary-btn"
-  disabled={syncing || data.role === 'member'}
-  onclick={syncLiveData}
->
-  {#if syncing}
-    <LoaderCircle class="spin" size={16}/>
-  {:else}
-    <RefreshCw size={16}/>
-  {/if}
-
-  {syncing ? 'Syncing live data…' : 'Sync live data'}
-</button>
-                        <a class="secondary-btn" href="/api/ebay/connect"
-                            ><RefreshCw size={15} /> Reauthorize</a
-                        >
-                        <button
-                            class="danger-btn"
-                            disabled={disconnecting || data.role === 'member'}
-                            onclick={disconnect}
-                            >{#if disconnecting}<LoaderCircle
-                                    class="spin"
-                                    size={15}
-                                />{:else}<Unplug size={15} />{/if} Disconnect</button
-                        >
-                    </div>
-                </article>
-
-                <aside class="card">
-                    <span class="eyebrow">STEP 1 SAFETY</span>
-                    <h3>Read and verify. Nothing destructive.</h3>
-                    <ul>
-                        <li>
-                            <Check size={15} />Identify the connected seller
-                        </li>
-                        <li>
-                            <Check size={15} />Refresh OAuth tokens
-                            automatically
-                        </li>
-                        <li><Check size={15} />Verify Inventory API access</li>
-                        <li>
-                            <Check size={15} />Prepare orders + finances sync
-                        </li>
-                    </ul>
-                    <p class="safe">
-                        <ShieldCheck size={17} /><span
-                            >Step 1 does <strong>not</strong> create, revise, end,
-                            refund, fulfill, or otherwise modify anything on eBay.</span
-                        >
-                    </p>
-                </aside>
-            </section>
+          <Check size={20} />
+          <span><small>STATUS</small><strong>{data.connection.status === 'error' ? 'Needs attention' : 'Connected'}</strong></span>
         {:else}
-            <section class="grid">
-                <article class="card primary">
-                    <div class="card-head">
-                        <div>
-                            <span class="eyebrow">CONFIGURATION</span>
-                            <h2>Production OAuth</h2>
-                        </div>
-                        <span class:ready={data.configured} class="pill"
-                            >{data.configured
-                                ? 'Configured'
-                                : 'Needs secrets'}</span
-                        >
-                    </div>
-                    <div class="checks">
-                        <span class:done={data.config.clientId}
-                            >{#if data.config.clientId}<Check
-                                    size={15}
-                                />{:else}<KeyRound size={15} />{/if}<strong
-                                >EBAY_CLIENT_ID</strong
-                            ></span
-                        >
-                        <span class:done={data.config.clientSecret}
-                            >{#if data.config.clientSecret}<Check
-                                    size={15}
-                                />{:else}<KeyRound size={15} />{/if}<strong
-                                >EBAY_CLIENT_SECRET</strong
-                            ></span
-                        >
-                        <span class:done={data.config.redirectUri}
-                            >{#if data.config.redirectUri}<Check
-                                    size={15}
-                                />{:else}<Link2 size={15} />{/if}<strong
-                                >EBAY_REDIRECT_URI</strong
-                            ><small>RuName</small></span
-                        >
-                        <span class:done={data.config.encryptionKey}
-                            >{#if data.config.encryptionKey}<Check
-                                    size={15}
-                                />{:else}<LockKeyhole size={15} />{/if}<strong
-                                >EBAY_TOKEN_ENCRYPTION_KEY</strong
-                            ></span
-                        >
-                    </div>
-                    <div class="callback">
-                        <span
-                            ><small>AUTH ACCEPTED URL</small><strong
-                                >{data.callbackUrl}</strong
-                            ></span
-                        ><button onclick={copyCallback}
-                            >{#if copied}<Check size={15} /> Copied{:else}<Clipboard
-                                    size={15}
-                                /> Copy{/if}</button
-                        >
-                    </div>
-                    <p class="help">
-                        In eBay Developer Portal, use the URL above for both <strong
-                            >Auth Accepted URL</strong
-                        >
-                        and <strong>Auth Declined URL</strong>. Put the
-                        generated <strong>RuName itself</strong> in
-                        <code>EBAY_REDIRECT_URI</code>. For local development,
-                        set <code>EBAY_CALLBACK_URL</code> to your deployed HTTPS
-                        callback before copying this value.
-                    </p>
-                    {#if data.configured}<a
-                            class="connect"
-                            href="/api/ebay/connect"
-                            ><PlugZap size={17} /> Connect eBay</a
-                        >{:else}<button class="connect" disabled
-                            ><KeyRound size={17} /> Finish configuration first</button
-                        >{/if}
-                </article>
-
-                <aside class="card">
-                    <span class="eyebrow">SECURITY MODEL</span>
-                    <h3>The browser never stores your eBay tokens.</h3>
-                    <ul>
-                        <li>
-                            <LockKeyhole size={15} />AES-GCM encrypted before D1
-                            storage
-                        </li>
-                        <li>
-                            <ShieldCheck size={15} />OAuth state checked against
-                            CSRF
-                        </li>
-                        <li>
-                            <RefreshCw size={15} />Refresh token handled
-                            server-side
-                        </li>
-                    </ul>
-                </aside>
-            </section>
+          <Unplug size={20} />
+          <span><small>STATUS</small><strong>Not connected</strong></span>
         {/if}
+      </div>
+    </section>
 
-        <section class="card permissions">
-            <div>
-                <span class="eyebrow">AUTHORIZATION</span>
-                <h2>Read-only automation scopes</h2>
+    {#if message}<div class="notice ok"><Check size={16} /> {message}</div>{/if}
+    {#if error}<div class="notice bad"><AlertTriangle size={16} /> {error}</div>{/if}
+
+    {#if data.connection}
+      <section class="grid">
+        <article class="card main-card">
+          <div class="card-head">
+            <div><span class="eyebrow">CONNECTED ACCOUNT</span><h2>{data.connection.displayName}</h2></div>
+            <span class:bad={data.connection.status === 'error'} class="pill">{data.connection.status === 'error' ? 'Attention needed' : 'Connected'}</span>
+          </div>
+
+          <div class="facts">
+            <span><small>Last synced</small><strong>{shortDateTime(data.connection.lastSyncedAt)}</strong></span>
+            <span><small>Connected</small><strong>{shortDateTime(data.connection.connectedAt)}</strong></span>
+          </div>
+
+          <div class="trust-box">
+            <ShieldCheck size={19} />
+            <span>
+              <strong>Sellquity reads your eBay business data.</strong>
+              <small>It does not create, edit, end, refund, or fulfill listings and orders from this connection.</small>
+            </span>
+          </div>
+
+          <div class="actions">
+            <button class="primary" disabled={syncing || data.role === 'member'} onclick={syncLiveData}>
+              {#if syncing}<LoaderCircle class="spin" size={16} />{:else}<RefreshCw size={16} />{/if}
+              {syncing ? 'Syncing…' : 'Sync now'}
+            </button>
+            <button class="secondary" disabled={checking || data.role === 'member'} onclick={verifyConnection}>
+              {#if checking}<LoaderCircle class="spin" size={16} />{:else}<ShieldCheck size={16} />{/if}
+              {checking ? 'Checking…' : 'Check connection'}
+            </button>
+            <a class="secondary" href="/api/ebay/connect"><RefreshCw size={15} /> Reconnect</a>
+            <button class="danger" disabled={disconnecting || data.role === 'member'} onclick={disconnect}>
+              {#if disconnecting}<LoaderCircle class="spin" size={15} />{:else}<Unplug size={15} />{/if}
+              Disconnect
+            </button>
+          </div>
+        </article>
+
+        <aside class="card side-card">
+          <span class="eyebrow">WHAT SELLQUITY USES</span>
+          <h3>Your day-to-day eBay data</h3>
+          <ul>
+            <li><Check size={15} /> Active listings and asking prices</li>
+            <li><Check size={15} /> Orders and sold items</li>
+            <li><Check size={15} /> Selling fees and shipping labels</li>
+            <li><Check size={15} /> Marketplace financial activity</li>
+          </ul>
+          <a class="text-link" href="/import">Need to backfill data? Open imports →</a>
+        </aside>
+      </section>
+    {:else if data.configured}
+      <section class="grid">
+        <article class="card main-card connect-card">
+          <span class="eyebrow">GET STARTED</span>
+          <h2>Connect your eBay seller account</h2>
+          <p>eBay will ask you to sign in and approve Sellquity. Once connected, Sellquity can import and sync the business data it needs.</p>
+          <a class="connect-button" href="/api/ebay/connect"><PlugZap size={17} /> Connect eBay</a>
+        </article>
+
+        <aside class="card side-card">
+          <ShieldCheck size={22} />
+          <h3>Your eBay account stays yours.</h3>
+          <p>Sellquity uses the approved connection to read seller data. Your eBay password is never stored by Sellquity.</p>
+        </aside>
+      </section>
+    {:else}
+      <section class="card setup-card">
+        <div class="setup-copy">
+          <AlertTriangle size={20} />
+          <div>
+            <span class="eyebrow">SETUP NEEDED</span>
+            <h2>eBay connections are not available in this environment yet.</h2>
+            <p>The Sellquity installation still needs its eBay app credentials configured. Regular users should never need to deal with this setup.</p>
+          </div>
+        </div>
+
+        <details>
+          <summary>Developer setup details</summary>
+          <div class="dev-details">
+            <div class="checks">
+              <span class:done={data.config.clientId}>{data.config.clientId ? '✓' : '○'} Client ID</span>
+              <span class:done={data.config.clientSecret}>{data.config.clientSecret ? '✓' : '○'} Client secret</span>
+              <span class:done={data.config.redirectUri}>{data.config.redirectUri ? '✓' : '○'} Redirect / RuName</span>
+              <span class:done={data.config.encryptionKey}>{data.config.encryptionKey ? '✓' : '○'} Token encryption key</span>
             </div>
-            <div class="scope-list">
-                {#each data.requestedScopes as scope}<span
-                        ><Check size={14} />{scopeLabel(scope)}</span
-                    >{/each}
+            <div class="callback">
+              <span><small>CALLBACK URL</small><strong>{data.callbackUrl}</strong></span>
+              <button type="button" onclick={copyCallback}>{#if copied}<Check size={15} /> Copied{:else}<Clipboard size={15} /> Copy{/if}</button>
             </div>
-            <p>
-                We are deliberately starting read-only. Listing writes come
-                later, after sync reconciliation is proven.
-            </p>
-        </section>
-    </main>
+            <p><LockKeyhole size={14} /> These details are for the Sellquity operator, not sellers using the product.</p>
+          </div>
+        </details>
+      </section>
+    {/if}
+  </main>
 </div>
 
 <style>
-    :global(body) {
-        margin: 0;
-        background: radial-gradient(
-                circle at 75% -10%,
-                #0069e31a 0,
-                transparent 34rem
-            ),
-            #050b14;
-        color: #f4f8ff;
-        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
-    }
-    .shell {
-        min-height: 100vh;
-    }
-    * {
-        box-sizing: border-box;
-    }
-    header {
-        min-height: 66px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 10px max(22px, calc((100vw - 1240px) / 2));
-        border-bottom: 1px solid #17304a;
-        background: #06101bd9;
-    }
-    header a,
-    header span {
-        display: inline-flex;
-        align-items: center;
-        gap: 7px;
-    }
-    header a {
-        color: #9ab0c2;
-        font-size: 0.82rem;
-        font-weight: 800;
-    }
-    header > span {
-        border: 1px solid #1c4a62;
-        border-radius: 999px;
-        padding: 6px 10px;
-        color: #68e4d5;
-        background: #08212b;
-        font:
-            800 0.64rem ui-monospace,
-            monospace;
-        letter-spacing: 0.07em;
-    }
-    main {
-        width: min(1240px, calc(100% - 42px));
-        margin: 0 auto;
-        padding: 48px 0 80px;
-    }
-    .eyebrow {
-        color: #01d4a5;
-        font:
-            850 0.69rem ui-monospace,
-            monospace;
-        letter-spacing: 0.12em;
-    }
-    .hero {
-        display: grid;
-        grid-template-columns: 1fr auto;
-        gap: 40px;
-        align-items: end;
-        margin-bottom: 22px;
-    }
-    h1 {
-        margin: 8px 0 10px;
-        font-size: clamp(2.9rem, 5.5vw, 5rem);
-        line-height: 0.92;
-        letter-spacing: -0.055em;
-    }
-    .hero p {
-        max-width: 700px;
-        margin: 0;
-        color: #8399ac;
-        font-size: 0.92rem;
-        line-height: 1.65;
-    }
-    .state-card {
-        min-width: 260px;
-        display: flex;
-        align-items: center;
-        gap: 11px;
-        border: 1px solid #28435a;
-        border-radius: 12px;
-        padding: 14px;
-        background: #0a1722;
-        color: #7891a4;
-    }
-    .state-card.connected {
-        border-color: #176051;
-        background: #08231f;
-        color: #68e3d1;
-    }
-    .state-card span {
-        display: flex;
-        flex-direction: column;
-    }
-    .state-card small {
-        font:
-            800 0.52rem ui-monospace,
-            monospace;
-        letter-spacing: 0.08em;
-    }
-    .state-card strong {
-        margin-top: 2px;
-        color: #eef8ff;
-        font-size: 0.84rem;
-    }
-    .state-card em {
-        margin-top: 2px;
-        font-size: 0.65rem;
-        font-style: normal;
-    }
-    .notice {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin-bottom: 12px;
-        border-radius: 9px;
-        padding: 10px 12px;
-        font-size: 0.75rem;
-    }
-    .notice.ok {
-        border: 1px solid #17605b;
-        color: #74e2d0;
-        background: #08231f;
-    }
-    .notice.bad {
-        border: 1px solid #663840;
-        color: #efa1a8;
-        background: #281419;
-    }
-    .grid {
-        display: grid;
-        grid-template-columns: minmax(0, 1.5fr) minmax(300px, 0.65fr);
-        gap: 13px;
-        align-items: start;
-    }
-    .card {
-        border: 1px solid #19364d;
-        border-radius: 14px;
-        padding: 20px;
-        background: linear-gradient(145deg, #0c1927, #09131f);
-    }
-    .card-head {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 16px;
-    }
-    .card-head > div {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-    }
-    h2 {
-        margin: 0;
-        font-size: 1.35rem;
-        letter-spacing: -0.025em;
-    }
-    h3 {
-        margin: 7px 0 15px;
-        font-size: 1.05rem;
-    }
-    .pill {
-        border: 1px solid #315067;
-        border-radius: 999px;
-        padding: 5px 8px;
-        color: #7e96a9;
-        background: #0b1924;
-        font:
-            850 0.54rem ui-monospace,
-            monospace;
-        text-transform: uppercase;
-    }
-    .pill.ready,
-    .pill:not(.bad) {
-        border-color: #176051;
-        color: #66dec8;
-        background: #09231f;
-    }
-    .pill.bad {
-        border-color: #63363d;
-        color: #e98b94;
-        background: #251419;
-    }
-    .facts {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 8px;
-        margin-top: 18px;
-    }
-    .facts span {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        border: 1px solid #18364b;
-        border-radius: 8px;
-        padding: 10px;
-        background: #07131e;
-    }
-    .facts small {
-        color: #5e7c91;
-        font-size: 0.61rem;
-    }
-    .facts strong {
-        overflow: hidden;
-        font-size: 0.76rem;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-    .token {
-        display: flex;
-        gap: 10px;
-        align-items: center;
-        margin-top: 12px;
-        border: 1px solid #1a4658;
-        border-radius: 9px;
-        padding: 12px;
-        background: #071923;
-        color: #64d5df;
-    }
-    .token span {
-        display: flex;
-        flex-direction: column;
-        gap: 3px;
-    }
-    .token small {
-        font:
-            800 0.55rem ui-monospace,
-            monospace;
-        letter-spacing: 0.07em;
-    }
-    .token strong {
-        color: #e8f3f9;
-        font-size: 0.76rem;
-    }
-    .token em {
-        color: #678398;
-        font-size: 0.64rem;
-        font-style: normal;
-    }
-    .actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin-top: 15px;
-    }
-    .actions button,
-    .actions a,
-    .connect {
-        min-height: 41px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 7px;
-        border-radius: 8px;
-        padding: 0 13px;
-        font: inherit;
-        font-size: 0.73rem;
-        font-weight: 900;
-        cursor: pointer;
-    }
-    .primary-btn,
-    .connect {
-        border: 0;
-        color: #03131a;
-        background: linear-gradient(135deg, #0069e3, #01d0e9 56%, #01d4a5);
-    }
-    .secondary-btn {
-        border: 1px solid #24526d;
-        color: #bfd4e0;
-        background: #0b2030;
-    }
-    .danger-btn {
-        border: 1px solid #4d343a;
-        color: #c88890;
-        background: #1d1418;
-    }
-    .actions button:disabled,
-    .connect:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
-    }
-    .card ul {
-        display: grid;
-        gap: 0;
-        margin: 0;
-        padding: 0;
-        list-style: none;
-    }
-    .card li {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        border-bottom: 1px solid #173047;
-        padding: 10px 0;
-        color: #a6bbc9;
-        font-size: 0.71rem;
-    }
-    .card li:last-child {
-        border-bottom: 0;
-    }
-    .card li :global(svg) {
-        color: #01d4a5;
-    }
-    .safe {
-        display: flex;
-        gap: 8px;
-        margin: 14px 0 0;
-        border: 1px solid #175661;
-        border-radius: 9px;
-        padding: 10px;
-        color: #6fd8cd;
-        background: #08242b;
-        font-size: 0.67rem;
-        line-height: 1.5;
-    }
-    .safe :global(svg) {
-        flex: 0 0 auto;
-    }
-    .safe strong {
-        color: #d9f3f0;
-    }
-    .checks {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        gap: 7px;
-        margin-top: 18px;
-    }
-    .checks span {
-        display: grid;
-        grid-template-columns: auto 1fr;
-        gap: 2px 8px;
-        align-items: center;
-        border: 1px solid #273b4d;
-        border-radius: 8px;
-        padding: 10px;
-        color: #748da0;
-        background: #0a151f;
-    }
-    .checks span.done {
-        border-color: #17554f;
-        color: #6fd9c8;
-        background: #09201d;
-    }
-    .checks :global(svg) {
-        grid-row: 1/3;
-    }
-    .checks strong {
-        font:
-            800 0.62rem ui-monospace,
-            monospace;
-    }
-    .checks small {
-        font-size: 0.58rem;
-    }
-    .callback {
-        display: grid;
-        grid-template-columns: 1fr auto;
-        gap: 8px;
-        align-items: center;
-        margin-top: 12px;
-        border: 1px solid #1b4b61;
-        border-radius: 9px;
-        padding: 10px;
-        background: #071923;
-    }
-    .callback span {
-        min-width: 0;
-        display: flex;
-        flex-direction: column;
-        gap: 3px;
-    }
-    .callback small {
-        color: #5c8092;
-        font:
-            800 0.52rem ui-monospace,
-            monospace;
-    }
-    .callback strong {
-        overflow: hidden;
-        color: #a7c2cf;
-        font:
-            700 0.67rem ui-monospace,
-            monospace;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-    .callback button {
-        min-height: 34px;
-        display: flex;
-        align-items: center;
-        gap: 5px;
-        border: 1px solid #24526d;
-        border-radius: 7px;
-        color: #9dc7d6;
-        background: #0b2030;
-        font-size: 0.64rem;
-        font-weight: 800;
-    }
-    .help {
-        color: #71899c;
-        font-size: 0.7rem;
-        line-height: 1.55;
-    }
-    .help strong {
-        color: #b6cad7;
-    }
-    code {
-        border-radius: 4px;
-        padding: 2px 4px;
-        color: #78e3d3;
-        background: #08242b;
-        font-family: ui-monospace, monospace;
-    }
-    .permissions {
-        margin-top: 13px;
-    }
-    .permissions > div:first-child {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-    }
-    .scope-list {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 7px;
-        margin-top: 14px;
-    }
-    .scope-list span {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        border: 1px solid #1b4b58;
-        border-radius: 999px;
-        padding: 6px 9px;
-        color: #91b7bd;
-        background: #081d25;
-        font-size: 0.65rem;
-    }
-    .scope-list :global(svg) {
-        color: #01d4a5;
-    }
-    .permissions p {
-        margin: 13px 0 0;
-        color: #71899c;
-        font-size: 0.68rem;
-    }
-    :global(.spin) {
-        animation: spin 0.8s linear infinite;
-    }
-    @keyframes spin {
-        to {
-            transform: rotate(360deg);
-        }
-    }
-    @media (max-width: 900px) {
-        .hero,
-        .grid {
-            grid-template-columns: 1fr;
-        }
-        .state-card {
-            width: fit-content;
-        }
-        .facts {
-            grid-template-columns: repeat(2, 1fr);
-        }
-    }
-    @media (max-width: 620px) {
-        main {
-            width: min(100% - 24px, 1240px);
-            padding-top: 32px;
-        }
-        header {
-            padding-inline: 12px;
-        }
-        header > span {
-            display: none;
-        }
-        h1 {
-            font-size: 2.8rem;
-        }
-        .facts,
-        .checks {
-            grid-template-columns: 1fr;
-        }
-    }
+  :global(body) { margin: 0; background: #080d12; }
+  * { box-sizing: border-box; }
+  .connection-shell { min-height: 100vh; color: #e8eee9; background: #080d12; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+  .topbar { height: 62px; display: flex; align-items: center; justify-content: space-between; padding: 0 max(24px, calc((100vw - 1080px) / 2)); border-bottom: 1px solid #202a33; background: #0b1117; }
+  .topbar a, .topbar > span { display: inline-flex; align-items: center; gap: 7px; }
+  .topbar a { color: #9aa8b3; text-decoration: none; font-size: .78rem; font-weight: 800; }
+  .topbar > span { color: #01d4a5; font: 800 .63rem Consolas, monospace; letter-spacing: .12em; }
+  main { width: min(1080px, calc(100% - 40px)); margin: 0 auto; padding: 48px 0 80px; }
+  .hero { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: end; gap: 30px; margin-bottom: 22px; }
+  .eyebrow { color: #01d4a5; font: 800 .64rem Consolas, monospace; letter-spacing: .12em; }
+  h1 { margin: 7px 0 9px; font-size: clamp(2.4rem, 6vw, 4rem); letter-spacing: -.05em; }
+  h2, h3 { margin: 5px 0 0; }
+  .hero p, .card p { max-width: 700px; margin: 0; color: #7e8a95; font-size: .82rem; line-height: 1.6; }
+  .connection-state { min-width: 180px; display: flex; align-items: center; gap: 10px; border: 1px solid #39434c; border-radius: 12px; padding: 13px 15px; color: #8b98a2; background: #0e151b; }
+  .connection-state.connected { border-color: #245543; color: #75e1c7; background: #0c1e19; }
+  .connection-state span { display: flex; flex-direction: column; gap: 2px; }
+  .connection-state small { color: #697780; font: 800 .56rem Consolas, monospace; letter-spacing: .09em; }
+  .connection-state strong { color: #e8eee9; font-size: .8rem; }
+  .notice { display: flex; align-items: center; gap: 7px; margin-bottom: 12px; border-radius: 9px; padding: 10px 12px; font-size: .74rem; }
+  .notice.ok { border: 1px solid #235847; color: #7be6ce; background: #0d211b; }
+  .notice.bad { border: 1px solid #61343b; color: #efa1a8; background: #281519; }
+  .grid { display: grid; grid-template-columns: minmax(0,1.5fr) minmax(280px,.75fr); gap: 14px; }
+  .card { border: 1px solid #29343e; border-radius: 14px; padding: 22px; background: #0e151c; }
+  .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; }
+  .pill { border: 1px solid #315844; border-radius: 999px; padding: 5px 8px; color: #8ee3c9; background: #10211a; font-size: .64rem; font-weight: 800; }
+  .pill.bad { border-color: #62343b; color: #efa1a8; background: #251418; }
+  .facts { display: grid; grid-template-columns: 1fr 1fr; margin: 18px 0; border: 1px solid #28343e; border-radius: 10px; overflow: hidden; }
+  .facts span { display: flex; flex-direction: column; gap: 4px; padding: 12px; border-right: 1px solid #28343e; }
+  .facts span:last-child { border-right: 0; }
+  .facts small { color: #6b7882; font-size: .63rem; }
+  .facts strong { font-size: .76rem; }
+  .trust-box { display: flex; align-items: flex-start; gap: 10px; border: 1px solid #214d42; border-radius: 10px; padding: 12px; color: #75e1c7; background: #0b1c18; }
+  .trust-box span { display: flex; flex-direction: column; gap: 3px; }
+  .trust-box strong { color: #dceae4; font-size: .75rem; }
+  .trust-box small { color: #6f978a; font-size: .66rem; line-height: 1.45; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+  button, .primary, .secondary, .danger, .connect-button { min-height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border-radius: 8px; padding: 0 12px; font: inherit; font-size: .7rem; font-weight: 850; cursor: pointer; text-decoration: none; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .primary, .connect-button { border: 0; color: #03131a; background: #01d4a5; }
+  .secondary { border: 1px solid #35424d; color: #dce5df; background: #151e25; }
+  .danger { border: 1px solid #5f333a; color: #ef9ba3; background: #261418; }
+  .side-card ul { display: grid; gap: 10px; margin: 17px 0; padding: 0; list-style: none; color: #8b999f; font-size: .72rem; }
+  .side-card li { display: flex; align-items: center; gap: 7px; }
+  .side-card li :global(svg) { color: #01d4a5; }
+  .text-link { color: #6dbbc8; text-decoration: none; font-size: .69rem; font-weight: 800; }
+  .connect-card p { margin: 10px 0 18px; }
+  .connect-button { width: fit-content; }
+  .setup-card { display: grid; gap: 18px; }
+  .setup-copy { display: flex; align-items: flex-start; gap: 11px; }
+  .setup-copy > :global(svg) { color: #d8b36a; }
+  details { border-top: 1px solid #26323b; padding-top: 14px; }
+  summary { color: #89969f; font-size: .72rem; font-weight: 800; cursor: pointer; }
+  .dev-details { display: grid; gap: 12px; margin-top: 14px; }
+  .checks { display: flex; flex-wrap: wrap; gap: 7px; }
+  .checks span { border: 1px solid #3b4148; border-radius: 999px; padding: 5px 8px; color: #8a949c; font-size: .64rem; }
+  .checks span.done { border-color: #28533f; color: #7fd8bc; }
+  .callback { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; align-items: center; }
+  .callback span { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .callback small { color: #65727c; font-size: .58rem; }
+  .callback strong { overflow: hidden; color: #b9c5cc; font: 700 .66rem Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+  .callback button { border: 1px solid #35424d; color: #c9d3d9; background: #121a20; }
+  .dev-details p { display: flex; align-items: center; gap: 6px; }
+  :global(.spin) { animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (max-width: 760px) { main { width: min(100% - 24px,1080px); padding-top: 30px; } .topbar { padding: 0 13px; } .hero, .grid { grid-template-columns: 1fr; } .connection-state { justify-self: start; } .facts { grid-template-columns: 1fr; } .facts span { border-right: 0; border-bottom: 1px solid #28343e; } .facts span:last-child { border-bottom: 0; } }
 </style>

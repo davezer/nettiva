@@ -8,3 +8,11 @@ node_modules
 build
 .DS_Store
 /backups/
+
+# Local database snapshots / emergency dumps should never be committed.
+/*-local-before-*.sql
+/.sellquity-live-api-backup-*/
+/*.sqlite
+/*.sqlite-*
+/*.db
+/*.db-*

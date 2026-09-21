@@ -2,19 +2,17 @@
   import type { Snippet } from 'svelte';
   import { page } from '$app/state';
   import {
-    ChevronDown,
+    BarChart3,
+    Boxes,
     ChevronRight,
-    CircleDollarSign,
     ClipboardCheck,
-    FileSpreadsheet,
-    Layers3,
+    Home,
     Menu,
-    PlugZap,
-    ReceiptText,
+    PackageCheck,
     Settings,
     ShoppingBag,
-    Tag,
     UserRound,
+    WalletCards,
     X
   } from '@lucide/svelte';
   import type { OrganizedShellCounts } from '$lib/server/organized-dashboard';
@@ -37,86 +35,31 @@
 
   let mobileNavOpen = $state(false);
 
-  const groups = [
-    {
-      index: '02',
-      label: 'Inventory',
-      items: [
-        { key: 'inventory-all', label: 'All inventory', href: '/inventory', count: 'inventoryAll' as const },
-        { key: 'inventory-unlisted', label: 'Unlisted', href: '/inventory?status=unlisted', count: 'inventoryUnlisted' as const },
-        { key: 'listing-prep', label: 'Listing Prep', href: '/listing-prep', icon: ClipboardCheck },
-        { key: 'inventory-scheduled', label: 'Scheduled', href: '/inventory?status=scheduled', count: 'inventoryScheduled' as const },
-        { key: 'inventory-active', label: 'Active', href: '/inventory?status=active', count: 'inventoryActive' as const },
-        { key: 'inventory-missing', label: 'Missing data', href: '/inventory?quality=missing', count: 'inventoryMissing' as const }
-      ]
-    },
-    {
-      index: '03',
-      label: 'Sold',
-      items: [
-        { key: 'sold-all', label: 'All sold', href: '/sold', count: 'soldAll' as const },
-        { key: 'sold-missing-cogs', label: 'Missing COGS', href: '/sold?quality=missing-cogs', count: 'soldMissingCogs' as const },
-        { key: 'sold-unmatched', label: 'Unmatched sales', href: '/sold?quality=unmatched', count: 'soldUnmatched' as const }
-      ]
-    },
-    {
-      index: '04',
-      label: 'Money',
-      items: [
-        { key: 'money-overview', label: 'Overview', href: '/money' },
-        { key: 'money-transactions', label: 'Transactions', href: '/money/transactions', icon: ReceiptText },
-        { key: 'cogs', label: 'COGS Desk', href: '/cogs', icon: CircleDollarSign },
-        { key: 'purchase-lots', label: 'Purchase Lots', href: '/purchase-lots', icon: ShoppingBag }
-      ]
-    },
-    {
-      index: '05',
-      label: 'Insights',
-      items: [
-        { key: 'insights', label: 'Sales & inventory', href: '/insights' }
-      ]
-    },
-    {
-      index: '06',
-      label: 'Manage',
-      items: [
-        { key: 'manage', label: 'Manage home', href: '/manage', icon: Settings },
-        { key: 'categories', label: 'Categories', href: '/categories', icon: Tag },
-        { key: 'marketplaces', label: 'Marketplaces', href: '/marketplaces', icon: Layers3 },
-        { key: 'imports', label: 'Data & imports', href: '/import', icon: FileSpreadsheet },
-        { key: 'ebay', label: 'eBay connection', href: '/integrations/ebay', icon: PlugZap }
-      ]
-    }
+  const navItems = [
+    { key: 'home', label: 'Home', href: '/', icon: Home },
+    { key: 'inventory', label: 'Inventory', href: '/inventory', icon: Boxes, count: 'inventoryAll' as const },
+    { key: 'sales', label: 'Sales', href: '/sold', icon: PackageCheck, count: 'soldAll' as const },
+    { key: 'money', label: 'Money', href: '/money', icon: WalletCards },
+    { key: 'insights', label: 'Insights', href: '/insights', icon: BarChart3 },
+    { key: 'settings', label: 'Settings', href: '/manage', icon: Settings }
   ];
 
   function activeFromRoute() {
     const pathname = page.url.pathname;
-    const params = page.url.searchParams;
 
     if (pathname === '/') return 'home';
-    if (pathname.startsWith('/inventory')) {
-      if (params.get('quality') === 'missing') return 'inventory-missing';
-      if (params.get('status') === 'unlisted') return 'inventory-unlisted';
-      if (params.get('status') === 'scheduled') return 'inventory-scheduled';
-      if (params.get('status') === 'active') return 'inventory-active';
-      return 'inventory-all';
-    }
-    if (pathname === '/listing-prep') return 'listing-prep';
-    if (pathname.startsWith('/sold')) {
-      if (params.get('quality') === 'missing-cogs') return 'sold-missing-cogs';
-      if (params.get('quality') === 'unmatched') return 'sold-unmatched';
-      return 'sold-all';
-    }
-    if (pathname.startsWith('/money/transactions')) return 'money-transactions';
-    if (pathname.startsWith('/money')) return 'money-overview';
-    if (pathname.startsWith('/cogs')) return 'cogs';
-    if (pathname.startsWith('/purchase-lots')) return 'purchase-lots';
+    if (pathname.startsWith('/inventory') || pathname.startsWith('/listing-prep') || pathname.startsWith('/purchase-lots')) return 'inventory';
+    if (pathname.startsWith('/sold') || pathname.startsWith('/cogs')) return 'sales';
+    if (pathname.startsWith('/money')) return 'money';
     if (pathname.startsWith('/insights')) return 'insights';
-    if (pathname.startsWith('/manage')) return 'manage';
-    if (pathname.startsWith('/categories')) return 'categories';
-    if (pathname.startsWith('/marketplaces')) return 'marketplaces';
-    if (pathname.startsWith('/import')) return 'imports';
-    if (pathname.startsWith('/integrations/ebay')) return 'ebay';
+    if (
+      pathname.startsWith('/manage') ||
+      pathname.startsWith('/categories') ||
+      pathname.startsWith('/marketplaces') ||
+      pathname.startsWith('/import') ||
+      pathname.startsWith('/integrations') ||
+      pathname.startsWith('/reconciliation')
+    ) return 'settings';
     if (pathname.startsWith('/account')) return 'account';
     return '';
   }
@@ -133,11 +76,6 @@
       hour: 'numeric',
       minute: '2-digit'
     }).format(date)}`;
-  }
-
-  function closeMobileNav(event: MouseEvent) {
-    const target = event.target as HTMLElement | null;
-    if (target?.closest('a')) mobileNavOpen = false;
   }
 </script>
 
@@ -162,45 +100,44 @@
 
     <div class="organized-mobile-drawer">
       <div class="organized-nav-caption">
-        <span>WORKSPACE INDEX</span>
+        <span>WORKSPACE</span>
         <b>{workspace.name}</b>
       </div>
 
-      <nav
-        class="organized-nav"
-        aria-label="Primary navigation"
-        data-sveltekit-preload-data="hover"
-      >
-        <a class:active={active === 'home'} class="organized-nav-home" href="/" onclick={() => mobileNavOpen = false}>
-          <span class="organized-nav-index">01</span>
-          <span>Home</span>
-        </a>
-
-        {#each groups as group}
-          <details class="organized-nav-group" open>
-            <summary>
-              <span class="organized-nav-index">{group.index}</span>
-              <span>{group.label}</span>
-              <ChevronDown class="organized-chevron" size={15} />
-            </summary>
-            <div class="organized-nav-children">
-              {#each group.items as item}
-                {@const ItemIcon = 'icon' in item ? item.icon : null}
-                <a class:active={active === item.key} href={item.href} onclick={() => mobileNavOpen = false}>
-                  {#if ItemIcon}<ItemIcon size={14} />{/if}
-                  <span>{item.label}</span>
-                  {#if 'count' in item && item.count}
-                    <b>{counts[item.count]}</b>
-                  {/if}
-                </a>
-              {/each}
-            </div>
-          </details>
+      <nav class="organized-nav" aria-label="Primary navigation" data-sveltekit-preload-data="hover">
+        {#each navItems as item}
+          {@const Icon = item.icon}
+          <a
+            class:active={active === item.key}
+            class="organized-nav-home"
+            href={item.href}
+            onclick={() => mobileNavOpen = false}
+          >
+            <Icon size={18} />
+            <span>{item.label}</span>
+            {#if 'count' in item && item.count}
+              <b>{counts[item.count]}</b>
+            {/if}
+          </a>
         {/each}
       </nav>
 
+      <div class="organized-nav-caption">
+        <span>QUICK ACTIONS</span>
+      </div>
+      <div class="organized-nav-children">
+        <a href="/purchase-lots" onclick={() => mobileNavOpen = false}>
+          <ShoppingBag size={14} />
+          <span>Add a purchase</span>
+        </a>
+        <a href="/listing-prep" onclick={() => mobileNavOpen = false}>
+          <ClipboardCheck size={14} />
+          <span>Prep listings</span>
+        </a>
+      </div>
+
       <div class="organized-sidebar-footer">
-        <a href="/account" class:active={active === 'account'}  onclick={() => mobileNavOpen = false}>
+        <a href="/account" class:active={active === 'account'} onclick={() => mobileNavOpen = false}>
           <UserRound size={17} />
           <span>
             <strong>{workspace.name}</strong>
@@ -211,6 +148,11 @@
         <div class:online={connected} class="organized-connection-line">
           <span></span>
           <small>{connected ? formatSyncedAt(lastSyncedAt) : 'eBay not connected'}</small>
+        </div>
+        <div class="organized-legal-links">
+          <a href="/support" onclick={() => mobileNavOpen = false}>Support</a>
+          <a href="/privacy" onclick={() => mobileNavOpen = false}>Privacy</a>
+          <a href="/terms" onclick={() => mobileNavOpen = false}>Terms</a>
         </div>
       </div>
     </div>
@@ -229,3 +171,24 @@
     {@render children()}
   </main>
 </div>
+
+
+<style>
+  .organized-legal-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    padding: 2px 4px 0;
+  }
+
+  .organized-legal-links a {
+    color: #5f7887;
+    font-size: .61rem;
+    font-weight: 800;
+    text-decoration: none;
+  }
+
+  .organized-legal-links a:hover {
+    color: #01d4a5;
+  }
+</style>

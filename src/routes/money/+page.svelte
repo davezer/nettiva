@@ -1,6 +1,6 @@
 <script lang="ts">
   import { invalidateAll } from '$app/navigation';
-  import { Calculator, Check, CircleDollarSign, ReceiptText, Save, WalletCards } from '@lucide/svelte';
+  import { AlertTriangle, Calculator, Check, CircleDollarSign, ReceiptText, Save, WalletCards } from '@lucide/svelte';
   import PageChrome from '$lib/components/organized/PageChrome.svelte';
   import { money, shortDate } from '$lib/money';
   import type { ExpenseCategory, FinanceCategory } from '$lib/types';
@@ -8,8 +8,8 @@
 
   let { data }: { data: OrganizedDashboardData } = $props();
 
-  type Period = 'all' | '30d' | 'month' | 'ytd';
-  let period = $state<Period>('all');
+  type Period = 'month' | '30d' | 'ytd' | 'all';
+  let period = $state<Period>('month');
   let expenseDate = $state(new Date().toISOString().slice(0, 10));
   let expenseDescription = $state('');
   let expenseCategory = $state<ExpenseCategory>('shipping_supplies');
@@ -131,41 +131,58 @@
   <div class="org-stack">
     <section class="org-card">
       <div class="org-toolbar">
-        <span class="org-kicker">REPORTING PERIOD</span>
+        <div>
+          <span class="org-kicker">REPORTING PERIOD</span>
+          <p style="margin:4px 0 0;color:#66818f;font-size:.67rem">See the money that moved during the period you care about.</p>
+        </div>
         <div class="org-segments">
-          <button class:active={period === 'all'} type="button" onclick={() => period = 'all'}>All time</button>
-          <button class:active={period === '30d'} type="button" onclick={() => period = '30d'}>30 days</button>
           <button class:active={period === 'month'} type="button" onclick={() => period = 'month'}>This month</button>
+          <button class:active={period === '30d'} type="button" onclick={() => period = '30d'}>30 days</button>
           <button class:active={period === 'ytd'} type="button" onclick={() => period = 'ytd'}>YTD</button>
+          <button class:active={period === 'all'} type="button" onclick={() => period = 'all'}>All time</button>
         </div>
       </div>
     </section>
 
+    {#if missingCogs.length}
+      <section class="org-card pad" style="border-color:#604d27;background:#17140d">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+          <div style="display:flex;align-items:flex-start;gap:10px">
+            <AlertTriangle size={18} />
+            <div>
+              <strong>{missingCogs.length} sale{missingCogs.length === 1 ? '' : 's'} still need purchase cost</strong>
+              <p style="margin:5px 0 0;color:#8f846a;font-size:.68rem;line-height:1.5">Profit is estimated until those costs are filled in. Gross sales and marketplace charges are still shown normally.</p>
+            </div>
+          </div>
+          <a class="org-button secondary" href="/cogs">Add purchase costs</a>
+        </div>
+      </section>
+    {/if}
+
     <section class="org-grid cols-4">
-      <article class="org-card org-metric"><div class="org-metric-top"><span>Gross revenue</span><CircleDollarSign size={16} /></div><strong>{money(gross)}</strong><small>{sales.length} sales</small></article>
-      <article class="org-card org-metric"><div class="org-metric-top"><span>Marketplace fees</span><ReceiptText size={16} /></div><strong>{money(sellingFees)}</strong><small>platform fees in period</small></article>
+      <article class="org-card org-metric"><div class="org-metric-top"><span>Gross sales</span><CircleDollarSign size={16} /></div><strong>{money(gross)}</strong><small>{sales.length} sale{sales.length === 1 ? '' : 's'}</small></article>
+      <article class="org-card org-metric"><div class="org-metric-top"><span>Marketplace fees</span><ReceiptText size={16} /></div><strong>{money(sellingFees)}</strong><small>selling fees</small></article>
       <article class="org-card org-metric"><div class="org-metric-top"><span>Shipping labels</span><WalletCards size={16} /></div><strong>{money(shippingLabels)}</strong><small>seller-paid postage</small></article>
-      <article class="org-card org-metric profit"><div class="org-metric-top"><span>{missingCogs.length ? 'Profit before missing COGS' : 'Net profit'}</span><Calculator size={16} /></div><strong>{money(profit)}</strong><small>{missingCogs.length ? `${missingCogs.length} COGS missing` : `${percent(margin)} margin`}</small></article>
+      <article class="org-card org-metric profit"><div class="org-metric-top"><span>{missingCogs.length ? 'Estimated profit' : 'Net profit'}</span><Calculator size={16} /></div><strong>{money(profit)}</strong><small>{missingCogs.length ? `${missingCogs.length} purchase cost${missingCogs.length === 1 ? '' : 's'} missing` : `${percent(margin)} margin`}</small></article>
     </section>
 
     <section class="org-grid cols-2">
       <article class="org-card">
-        <div class="org-card-head"><div><span class="org-kicker">PROFIT & LOSS</span><h2>Where the money went</h2></div><Calculator size={18} /></div>
+        <div class="org-card-head"><div><span class="org-kicker">PROFIT BREAKDOWN</span><h2>From sales to profit</h2><p>The money Sellquity can currently account for in this period.</p></div><Calculator size={18} /></div>
         <div class="org-profit-list">
-          <div class="org-profit-row"><span>Gross sales + buyer shipping</span><strong class="org-positive">+{money(gross)}</strong></div>
-          <div class="org-profit-row"><span>Marketplace fees</span><strong class="org-negative">−{money(sellingFees)}</strong></div>
+          <div class="org-profit-row"><span>Sales + buyer-paid shipping</span><strong class="org-positive">+{money(gross)}</strong></div>
+          <div class="org-profit-row"><span>Selling fees</span><strong class="org-negative">−{money(sellingFees)}</strong></div>
           <div class="org-profit-row"><span>Shipping labels</span><strong class="org-negative">−{money(shippingLabels)}</strong></div>
           <div class="org-profit-row"><span>Refunds & disputes</span><strong class="org-negative">−{money(refunds)}</strong></div>
           <div class="org-profit-row"><span>Other fees / credits / adjustments</span><strong class:org-positive={otherAdjustments >= 0} class:org-negative={otherAdjustments < 0}>{signed(otherAdjustments)}</strong></div>
           <div class="org-profit-row"><span>Business expenses</span><strong class="org-negative">−{money(businessExpenses)}</strong></div>
-          <div class="org-profit-row"><span>Known COGS</span><strong class="org-negative">−{money(cogs)}</strong></div>
-          <div class="org-profit-row total"><span>{missingCogs.length ? 'Profit before missing COGS' : 'Net profit'}</span><strong>{money(profit)}</strong></div>
+          <div class="org-profit-row"><span>Purchase cost of sold items</span><strong class="org-negative">−{money(cogs)}</strong></div>
+          <div class="org-profit-row total"><span>{missingCogs.length ? 'Estimated profit' : 'Net profit'}</span><strong>{money(profit)}</strong></div>
         </div>
-        {#if missingCogs.length}<div class="org-card-head"><div><p>{missingCogs.length} sale cost{missingCogs.length === 1 ? '' : 's'} still need purchase cost before this is final.</p></div><a class="org-button secondary mini" href="/sold?quality=missing-cogs">Fix COGS</a></div>{/if}
       </article>
 
       <article class="org-card">
-        <div class="org-card-head"><div><span class="org-kicker">BUSINESS EXPENSES</span><h2>Add an operating cost</h2><p>Supplies, software, equipment, show fees and other business-wide expenses.</p></div></div>
+        <div class="org-card-head"><div><span class="org-kicker">BUSINESS EXPENSE</span><h2>Add an expense</h2><p>Record costs that belong to the business instead of one specific inventory item.</p></div></div>
         <form onsubmit={saveExpense}>
           <div class="org-form-grid">
             <label class="org-field"><span>Date</span><input class="org-input" type="date" bind:value={expenseDate} required /></label>
