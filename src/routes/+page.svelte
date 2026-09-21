@@ -13,52 +13,14 @@
     TrendingUp
   } from '@lucide/svelte';
   import PageChrome from '$lib/components/organized/PageChrome.svelte';
-  import type { OrganizedDashboardData } from '$lib/server/organized-dashboard';
   import { money, shortDate } from '$lib/money';
+  import type { PageData } from './$types';
 
-  let { data }: { data: OrganizedDashboardData } = $props();
+  let { data }: { data: PageData } = $props();
 
-  const inventory = $derived(data.inventory ?? []);
-  const sales = $derived(data.sales ?? []);
-  const unsold = $derived(inventory.filter((item) => item.status !== 'sold'));
-  const active = $derived(inventory.filter((item) => item.status === 'active'));
-  const scheduled = $derived(inventory.filter((item) => item.status === 'scheduled'));
-  const unlisted = $derived(inventory.filter((item) => item.status === 'unlisted'));
-  const stale = $derived(active.filter((item) => item.ageDays >= 91));
-
-  const missingInventory = $derived(
-    unsold.filter((item) => item.costCents == null || !item.source?.trim() || !item.location?.trim())
-  );
-  const missingCogs = $derived(sales.filter((sale) => sale.cogsCents == null));
-  const unmatchedSales = $derived(sales.filter((sale) => !sale.inventoryItemId));
-
-  const gross = $derived(
-    sales.reduce((sum, sale) => sum + sale.salePriceCents + sale.shippingChargedCents, 0)
-  );
-  const cogs = $derived(sales.reduce((sum, sale) => sum + (sale.cogsCents ?? 0), 0));
-  const pnlAdjustments = $derived(data.pnlAdjustmentsCents ?? 0);
-  const profit = $derived(gross + pnlAdjustments - cogs);
-  const margin = $derived(gross ? (profit / gross) * 100 : 0);
-  const inventoryBasis = $derived(unsold.reduce((sum, item) => sum + (item.costCents ?? 0), 0));
-  const activeValue = $derived(active.reduce((sum, item) => sum + (item.listPriceCents ?? 0), 0));
-
-  const firstSaleAt = $derived(
-    sales.length
-      ? [...sales].sort((a, b) => Date.parse(a.soldAt) - Date.parse(b.soldAt))[0]?.soldAt ?? null
-      : null
-  );
-  const latestSaleAt = $derived(sales[0]?.soldAt ?? null);
-
-  const counts = $derived({
-    inventoryAll: inventory.length,
-    inventoryUnlisted: unlisted.length,
-    inventoryScheduled: scheduled.length,
-    inventoryActive: active.length,
-    inventoryMissing: missingInventory.length,
-    soldAll: sales.length,
-    soldMissingCogs: missingCogs.length,
-    soldUnmatched: unmatchedSales.length
-  });
+  const shell = $derived(data.shell);
+  const overview = $derived(data.overview);
+  const counts = $derived(shell.counts);
 
   const attention = $derived.by(() => {
     const rows: Array<{
@@ -69,35 +31,35 @@
       severity: 'bad' | 'warn';
     }> = [];
 
-    if (missingCogs.length) rows.push({
+    if (counts.soldMissingCogs) rows.push({
       href: '/cogs',
       title: 'Sales need purchase costs',
       detail: 'Add what you paid so profit and ROI can be finalized.',
-      count: missingCogs.length,
+      count: counts.soldMissingCogs,
       severity: 'bad'
     });
 
-    if (unmatchedSales.length) rows.push({
+    if (counts.soldUnmatched) rows.push({
       href: '/sold?quality=unmatched',
       title: 'Sales need to be matched',
       detail: 'Review sales that could not be linked to tracked inventory.',
-      count: unmatchedSales.length,
+      count: counts.soldUnmatched,
       severity: 'bad'
     });
 
-    if (missingInventory.length) rows.push({
+    if (counts.inventoryMissing) rows.push({
       href: '/inventory?quality=missing',
       title: 'Inventory needs information',
       detail: 'Cost, source, or storage location is still missing.',
-      count: missingInventory.length,
+      count: counts.inventoryMissing,
       severity: 'warn'
     });
 
-    if (stale.length) rows.push({
+    if (overview.staleCount) rows.push({
       href: '/inventory?status=active&age=stale',
       title: 'Listings have been active for 90+ days',
       detail: 'Older inventory may be worth repricing or promoting.',
-      count: stale.length,
+      count: overview.staleCount,
       severity: 'warn'
     });
 
@@ -111,17 +73,15 @@
   }
 </script>
 
-<svelte:head>
-  <title>Sellquity · Home</title>
-</svelte:head>
+<svelte:head><title>Sellquity · Home</title></svelte:head>
 
 <PageChrome
   active="home"
   eyebrow="BUSINESS OVERVIEW"
   title="Home"
-  workspace={data.workspace}
-  connected={data.connected}
-  lastSyncedAt={data.lastSyncedAt}
+  workspace={shell.workspace}
+  connected={shell.connected}
+  lastSyncedAt={shell.lastSyncedAt}
   {counts}
 >
   {#snippet headerActions()}
@@ -133,48 +93,41 @@
     <section class="org-grid cols-4" aria-label="Business summary">
       <article class="org-card org-metric">
         <div class="org-metric-top"><span>Gross sales</span><CircleDollarSign size={17} /></div>
-        <strong>{money(gross)}</strong>
-        <small>{sales.length} tracked sale{sales.length === 1 ? '' : 's'}</small>
+        <strong>{money(overview.grossCents)}</strong>
+        <small>{counts.soldAll} tracked sale{counts.soldAll === 1 ? '' : 's'}</small>
       </article>
 
       <article class="org-card org-metric profit">
         <div class="org-metric-top">
-          <span>{missingCogs.length ? 'Estimated profit' : 'Net profit'}</span>
+          <span>{counts.soldMissingCogs ? 'Estimated profit' : 'Net profit'}</span>
           <TrendingUp size={17} />
         </div>
-        <strong>{money(profit)}</strong>
+        <strong>{money(overview.profitCents)}</strong>
         <small>
-          {missingCogs.length
-            ? `${missingCogs.length} sale${missingCogs.length === 1 ? '' : 's'} still need purchase cost`
-            : `${percent(margin)} margin`}
+          {counts.soldMissingCogs
+            ? `${counts.soldMissingCogs} sale${counts.soldMissingCogs === 1 ? '' : 's'} still need purchase cost`
+            : `${percent(overview.margin)} margin`}
         </small>
       </article>
 
       <article class="org-card org-metric">
         <div class="org-metric-top"><span>Invested in inventory</span><Boxes size={17} /></div>
-        <strong>{money(inventoryBasis)}</strong>
-        <small>{unsold.length} unsold item{unsold.length === 1 ? '' : 's'} with known cost</small>
+        <strong>{money(overview.inventoryBasisCents)}</strong>
+        <small>{counts.inventoryAll} unsold item{counts.inventoryAll === 1 ? '' : 's'}</small>
       </article>
 
       <article class="org-card org-metric">
         <div class="org-metric-top"><span>Active listings</span><ShoppingBag size={17} /></div>
-        <strong>{active.length}</strong>
-        <small>{money(activeValue)} current asking value</small>
+        <strong>{counts.inventoryActive}</strong>
+        <small>{money(overview.activeValueCents)} current asking value</small>
       </article>
     </section>
 
     <section class="org-grid home-main">
       <article class="org-card">
         <div class="org-card-head">
-          <div>
-            <span class="org-kicker">NEXT UP</span>
-            <h2>{attention.length ? 'What needs your attention' : 'You’re caught up'}</h2>
-          </div>
-          {#if attention.length}
-            <span class="org-pill">{attentionCount} to review</span>
-          {:else}
-            <span class="org-pill good">All clear</span>
-          {/if}
+          <div><span class="org-kicker">NEXT UP</span><h2>{attention.length ? 'What needs your attention' : 'You’re caught up'}</h2></div>
+          {#if attention.length}<span class="org-pill">{attentionCount} to review</span>{:else}<span class="org-pill good">All clear</span>{/if}
         </div>
 
         {#if attention.length}
@@ -185,17 +138,12 @@
                   {#if item.severity === 'bad'}<AlertTriangle size={14} />{:else}<Clock3 size={14} />{/if}
                 </span>
                 <span class="org-action-copy"><strong>{item.title}</strong><small>{item.detail}</small></span>
-                <b>{item.count}</b>
-                <ChevronRight size={14} />
+                <b>{item.count}</b><ChevronRight size={14} />
               </a>
             {/each}
           </div>
         {:else}
-          <div class="org-empty">
-            <Check size={22} />
-            <strong>Nothing needs cleanup right now.</strong>
-            Your inventory and sales data are in good shape.
-          </div>
+          <div class="org-empty"><Check size={22} /><strong>Nothing needs cleanup right now.</strong>Your inventory and sales data are in good shape.</div>
         {/if}
       </article>
 
@@ -206,19 +154,19 @@
         </div>
 
         <div class="org-state-grid">
-          <a class="org-state-card" href="/inventory?status=unlisted"><span>Unlisted</span><strong>{unlisted.length}</strong><small>waiting to list</small></a>
-          <a class="org-state-card" href="/inventory?status=scheduled"><span>Scheduled</span><strong>{scheduled.length}</strong><small>queued on marketplace</small></a>
-          <a class="org-state-card" href="/inventory?status=active"><span>Active</span><strong>{active.length}</strong><small>{money(activeValue)} asking</small></a>
-          <a class="org-state-card" href="/sold"><span>Sold</span><strong>{sales.length}</strong><small>tracked sales</small></a>
+          <a class="org-state-card" href="/inventory?status=unlisted"><span>Unlisted</span><strong>{counts.inventoryUnlisted}</strong><small>waiting to list</small></a>
+          <a class="org-state-card" href="/inventory?status=scheduled"><span>Scheduled</span><strong>{counts.inventoryScheduled}</strong><small>queued on marketplace</small></a>
+          <a class="org-state-card" href="/inventory?status=active"><span>Active</span><strong>{counts.inventoryActive}</strong><small>{money(overview.activeValueCents)} asking</small></a>
+          <a class="org-state-card" href="/sold"><span>Sold</span><strong>{counts.soldAll}</strong><small>tracked sales</small></a>
         </div>
 
         <div class="org-card-head">
           <div>
             <span class="org-kicker">EBAY</span>
-            <h3>{data.ebayConnection?.displayName ?? 'eBay account'}</h3>
-            <p>{data.connected ? 'Connected and available for automatic syncing.' : 'Connect eBay to automate listings and sales data.'}</p>
+            <h3>{shell.ebayConnection?.displayName ?? 'eBay account'}</h3>
+            <p>{shell.connected ? 'Connected and available for automatic syncing.' : 'Connect eBay to automate listings and sales data.'}</p>
           </div>
-          <span class:good={data.connected} class="org-pill">{data.connected ? 'connected' : 'not connected'}</span>
+          <span class:good={shell.connected} class="org-pill">{shell.connected ? 'connected' : 'not connected'}</span>
         </div>
       </article>
     </section>
@@ -229,14 +177,13 @@
         <a class="org-button ghost mini" href="/sold">All sales <ChevronRight size={13} /></a>
       </div>
 
-      {#if sales.length}
+      {#if overview.recentSales.length}
         <div class="org-sale-list">
-          {#each sales.slice(0, 7) as sale}
-            {@const item = inventory.find((candidate) => candidate.id === sale.inventoryItemId)}
+          {#each overview.recentSales as sale}
             <a class="org-sale-row" href={`/sold/${encodeURIComponent(sale.id)}`}>
               <span class="org-sale-row-main">
-                {#if item?.imageUrl}<img src={item.imageUrl} alt="" />{:else}<span class="org-item-thumb"></span>{/if}
-                <span><strong>{sale.title}</strong><small>{shortDate(sale.soldAt)} · {sale.ebayOrderId}</small></span>
+                {#if sale.imageUrl}<img src={sale.imageUrl} alt="" />{:else}<span class="org-item-thumb"></span>{/if}
+                <span><strong>{sale.title}</strong><small>{shortDate(sale.soldAt)} · {sale.ebayOrderId}{sale.sku ? ` · ${sale.sku}` : ''}</small></span>
               </span>
               <span class="org-sale-money"><small>Gross</small><strong>{money(sale.salePriceCents + sale.shippingChargedCents)}</strong></span>
               <span class="org-sale-profit">
@@ -255,11 +202,9 @@
     <section class="org-card pad">
       <div class="org-coverage">
         <ArrowUpRight size={14} />
-        <strong>Data coverage</strong>
-        <span class="dot"></span>
-        <span>Sales {firstSaleAt ? `from ${shortDate(firstSaleAt)}` : 'not available yet'}{latestSaleAt ? ` through ${shortDate(latestSaleAt)}` : ''}</span>
-        <span class="dot"></span>
-        <span>eBay sync {data.connected ? 'connected' : 'not connected'}</span>
+        <strong>Data coverage</strong><span class="dot"></span>
+        <span>Sales {overview.firstSaleAt ? `from ${shortDate(overview.firstSaleAt)}` : 'not available yet'}{overview.latestSaleAt ? ` through ${shortDate(overview.latestSaleAt)}` : ''}</span>
+        <span class="dot"></span><span>eBay sync {shell.connected ? 'connected' : 'not connected'}</span>
       </div>
     </section>
   </div>

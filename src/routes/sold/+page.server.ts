@@ -1,13 +1,14 @@
+import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { loadOrganizedDashboard } from '$lib/server/organized-dashboard';
+import { loadSalesPageData } from '$lib/server/reporting';
+import { currentWorkspaceId } from '$lib/server/workspace';
 
-export const load: PageServerLoad = async ({ platform, locals, parent }) => {
+export const load: PageServerLoad = async ({ platform, locals, parent, url }) => {
   const { shell } = await parent();
-  return loadOrganizedDashboard(platform, locals, {
-    includeInventory: true,
-    includeSales: true,
-    includeTransactions: false,
-    includeCoverage: false,
-    includeHealth: false
-  }, shell);
+  if (!platform || !shell) throw error(503, 'Sellquity sales are unavailable.');
+
+  return {
+    shell,
+    sales: await loadSalesPageData(platform.env.DB, currentWorkspaceId(locals), url.searchParams)
+  };
 };

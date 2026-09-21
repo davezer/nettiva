@@ -81,6 +81,13 @@
           detail: 'Backfill eBay data or import Whatnot reports when a live connection is not available.',
           icon: FileSpreadsheet,
           badge: null
+        },
+        {
+          href: '/manage/data-health',
+          title: 'Data health',
+          detail: 'Run structural checks for broken links, cross-workspace references, duplicate SKUs, and cleanup queues.',
+          icon: ShieldCheck,
+          badge: null
         }
       ]
     },

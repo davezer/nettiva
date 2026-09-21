@@ -1,14 +1,14 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { loadHomeOverview } from '$lib/server/reporting';
+import { loadIntegrityReport } from '$lib/server/reporting';
 import { currentWorkspaceId } from '$lib/server/workspace';
 
 export const load: PageServerLoad = async ({ platform, locals, parent }) => {
   const { shell } = await parent();
-  if (!platform || !shell) throw error(503, 'Sellquity workspace data is unavailable.');
+  if (!platform || !shell) throw error(503, 'Sellquity data-health checks are unavailable.');
 
   return {
     shell,
-    overview: await loadHomeOverview(platform.env.DB, currentWorkspaceId(locals))
+    report: await loadIntegrityReport(platform.env.DB, currentWorkspaceId(locals))
   };
 };

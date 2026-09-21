@@ -3,13 +3,15 @@
   import { AlertTriangle, Calculator, Check, CircleDollarSign, ReceiptText, Save, WalletCards } from '@lucide/svelte';
   import PageChrome from '$lib/components/organized/PageChrome.svelte';
   import { money, shortDate } from '$lib/money';
-  import type { ExpenseCategory, FinanceCategory } from '$lib/types';
-  import type { OrganizedDashboardData } from '$lib/server/organized-dashboard';
+  import type { ExpenseCategory } from '$lib/types';
+  import type { PageData } from './$types';
 
-  let { data }: { data: OrganizedDashboardData } = $props();
+  let { data }: { data: PageData } = $props();
 
-  type Period = 'month' | '30d' | 'ytd' | 'all';
-  let period = $state<Period>('month');
+  const shell = $derived(data.shell);
+  const report = $derived(data.report);
+  const counts = $derived(shell.counts);
+
   let expenseDate = $state(new Date().toISOString().slice(0, 10));
   let expenseDescription = $state('');
   let expenseCategory = $state<ExpenseCategory>('shipping_supplies');
@@ -32,52 +34,6 @@
     { value: 'other', label: 'Other' }
   ];
 
-  const PNL_CATEGORIES = new Set<FinanceCategory>([
-    'selling_fee', 'shipping_label', 'refund', 'dispute',
-    'other_fee', 'adjustment', 'withheld_tax', 'purchase', 'business_expense'
-  ]);
-
-  function startDate() {
-    const now = new Date();
-    if (period === 'all') return null;
-    if (period === '30d') return new Date(now.getTime() - 30 * 86_400_000);
-    if (period === 'month') return new Date(now.getFullYear(), now.getMonth(), 1);
-    return new Date(now.getFullYear(), 0, 1);
-  }
-
-  function inPeriod(value: string) {
-    const start = startDate();
-    return !start || Date.parse(value) >= start.getTime();
-  }
-
-  const sales = $derived.by(() => data.sales.filter((sale) => inPeriod(sale.soldAt)));
-  const transactions = $derived.by(() => data.transactions.filter((transaction) => inPeriod(transaction.transactionDate)));
-  const gross = $derived(sales.reduce((sum, sale) => sum + sale.salePriceCents + sale.shippingChargedCents, 0));
-  const cogs = $derived(sales.reduce((sum, sale) => sum + (sale.cogsCents ?? 0), 0));
-  const missingCogs = $derived(sales.filter((sale) => sale.cogsCents == null));
-  const sellingFees = $derived(transactions.reduce((sum, transaction) => sum + (transaction.category === 'selling_fee' && transaction.amountCents < 0 ? -transaction.amountCents : 0), 0));
-  const shippingLabels = $derived(transactions.reduce((sum, transaction) => sum + (transaction.category === 'shipping_label' && transaction.amountCents < 0 ? -transaction.amountCents : 0), 0));
-  const refunds = $derived(transactions.reduce((sum, transaction) => sum + ((transaction.category === 'refund' || transaction.category === 'dispute') && transaction.amountCents < 0 ? -transaction.amountCents : 0), 0));
-  const businessExpenses = $derived(transactions.reduce((sum, transaction) => sum + (transaction.category === 'business_expense' && transaction.amountCents < 0 ? -transaction.amountCents : 0), 0));
-  const otherAdjustments = $derived(transactions.reduce((sum, transaction) => sum + (['other_fee', 'adjustment', 'withheld_tax', 'purchase'].includes(transaction.category) ? transaction.amountCents : 0), 0));
-  const pnlAdjustments = $derived(transactions.reduce((sum, transaction) => sum + (PNL_CATEGORIES.has(transaction.category) ? transaction.amountCents : 0), 0));
-  const profit = $derived(gross + pnlAdjustments - cogs);
-  const margin = $derived(gross ? (profit / gross) * 100 : 0);
-  const manualExpenses = $derived(transactions.filter((transaction) => transaction.category === 'business_expense' && transaction.source === 'manual'));
-
-  const unsold = $derived(data.inventory.filter((item) => item.status !== 'sold'));
-  const missingInventory = $derived(unsold.filter((item) => item.costCents == null || !item.source?.trim() || !item.location?.trim()));
-  const counts = $derived({
-    inventoryAll: data.inventory.length,
-    inventoryUnlisted: data.inventory.filter((item) => item.status === 'unlisted').length,
-    inventoryScheduled: data.inventory.filter((item) => item.status === 'scheduled').length,
-    inventoryActive: data.inventory.filter((item) => item.status === 'active').length,
-    inventoryMissing: missingInventory.length,
-    soldAll: data.sales.length,
-    soldMissingCogs: data.sales.filter((sale) => sale.cogsCents == null).length,
-    soldUnmatched: data.sales.filter((sale) => !sale.inventoryItemId).length
-  });
-
   function percent(value: number) { return `${value.toFixed(1)}%`; }
   function signed(value: number) { return `${value >= 0 ? '+' : '−'}${money(Math.abs(value))}`; }
 
@@ -93,6 +49,7 @@
     expenseSaving = true;
     expenseMessage = null;
     expenseBad = false;
+
     const response = await fetch('/api/expenses', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -104,6 +61,7 @@
         memo: expenseMemo.trim() || null
       })
     });
+
     const result = await response.json().catch(() => null) as { error?: string } | null;
     expenseSaving = false;
 
@@ -123,7 +81,7 @@
 
 <svelte:head><title>Sellquity · Money</title></svelte:head>
 
-<PageChrome active="money-overview" eyebrow="MONEY" title="Money" workspace={data.workspace} connected={data.connected} lastSyncedAt={data.lastSyncedAt} {counts}>
+<PageChrome active="money-overview" eyebrow="MONEY" title="Money" workspace={shell.workspace} connected={shell.connected} lastSyncedAt={shell.lastSyncedAt} {counts}>
   {#snippet headerActions()}
     <a class="org-button secondary" href="/money/transactions"><ReceiptText size={15} /> Transactions</a>
   {/snippet}
@@ -133,24 +91,24 @@
       <div class="org-toolbar">
         <div>
           <span class="org-kicker">REPORTING PERIOD</span>
-          <p style="margin:4px 0 0;color:#66818f;font-size:.67rem">See the money that moved during the period you care about.</p>
+          <p style="margin:4px 0 0;color:#66818f;font-size:.67rem">These totals are calculated in the database, not from a capped browser list.</p>
         </div>
         <div class="org-segments">
-          <button class:active={period === 'month'} type="button" onclick={() => period = 'month'}>This month</button>
-          <button class:active={period === '30d'} type="button" onclick={() => period = '30d'}>30 days</button>
-          <button class:active={period === 'ytd'} type="button" onclick={() => period = 'ytd'}>YTD</button>
-          <button class:active={period === 'all'} type="button" onclick={() => period = 'all'}>All time</button>
+          <a class:active={report.period === 'month'} href="/money?period=month">This month</a>
+          <a class:active={report.period === '30d'} href="/money?period=30d">30 days</a>
+          <a class:active={report.period === 'ytd'} href="/money?period=ytd">YTD</a>
+          <a class:active={report.period === 'all'} href="/money?period=all">All time</a>
         </div>
       </div>
     </section>
 
-    {#if missingCogs.length}
+    {#if report.missingCosts}
       <section class="org-card pad" style="border-color:#604d27;background:#17140d">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
           <div style="display:flex;align-items:flex-start;gap:10px">
             <AlertTriangle size={18} />
             <div>
-              <strong>{missingCogs.length} sale{missingCogs.length === 1 ? '' : 's'} still need purchase cost</strong>
+              <strong>{report.missingCosts} sale{report.missingCosts === 1 ? '' : 's'} still need purchase cost</strong>
               <p style="margin:5px 0 0;color:#8f846a;font-size:.68rem;line-height:1.5">Profit is estimated until those costs are filled in. Gross sales and marketplace charges are still shown normally.</p>
             </div>
           </div>
@@ -160,24 +118,24 @@
     {/if}
 
     <section class="org-grid cols-4">
-      <article class="org-card org-metric"><div class="org-metric-top"><span>Gross sales</span><CircleDollarSign size={16} /></div><strong>{money(gross)}</strong><small>{sales.length} sale{sales.length === 1 ? '' : 's'}</small></article>
-      <article class="org-card org-metric"><div class="org-metric-top"><span>Marketplace fees</span><ReceiptText size={16} /></div><strong>{money(sellingFees)}</strong><small>selling fees</small></article>
-      <article class="org-card org-metric"><div class="org-metric-top"><span>Shipping labels</span><WalletCards size={16} /></div><strong>{money(shippingLabels)}</strong><small>seller-paid postage</small></article>
-      <article class="org-card org-metric profit"><div class="org-metric-top"><span>{missingCogs.length ? 'Estimated profit' : 'Net profit'}</span><Calculator size={16} /></div><strong>{money(profit)}</strong><small>{missingCogs.length ? `${missingCogs.length} purchase cost${missingCogs.length === 1 ? '' : 's'} missing` : `${percent(margin)} margin`}</small></article>
+      <article class="org-card org-metric"><div class="org-metric-top"><span>Gross sales</span><CircleDollarSign size={16} /></div><strong>{money(report.grossCents)}</strong><small>{report.salesCount} sale{report.salesCount === 1 ? '' : 's'}</small></article>
+      <article class="org-card org-metric"><div class="org-metric-top"><span>Marketplace fees</span><ReceiptText size={16} /></div><strong>{money(report.sellingFeesCents)}</strong><small>selling fees</small></article>
+      <article class="org-card org-metric"><div class="org-metric-top"><span>Shipping labels</span><WalletCards size={16} /></div><strong>{money(report.shippingLabelsCents)}</strong><small>seller-paid postage</small></article>
+      <article class="org-card org-metric profit"><div class="org-metric-top"><span>{report.missingCosts ? 'Estimated profit' : 'Net profit'}</span><Calculator size={16} /></div><strong>{money(report.profitCents)}</strong><small>{report.missingCosts ? `${report.missingCosts} purchase cost${report.missingCosts === 1 ? '' : 's'} missing` : `${percent(report.margin)} margin`}</small></article>
     </section>
 
     <section class="org-grid cols-2">
       <article class="org-card">
         <div class="org-card-head"><div><span class="org-kicker">PROFIT BREAKDOWN</span><h2>From sales to profit</h2><p>The money Sellquity can currently account for in this period.</p></div><Calculator size={18} /></div>
         <div class="org-profit-list">
-          <div class="org-profit-row"><span>Sales + buyer-paid shipping</span><strong class="org-positive">+{money(gross)}</strong></div>
-          <div class="org-profit-row"><span>Selling fees</span><strong class="org-negative">−{money(sellingFees)}</strong></div>
-          <div class="org-profit-row"><span>Shipping labels</span><strong class="org-negative">−{money(shippingLabels)}</strong></div>
-          <div class="org-profit-row"><span>Refunds & disputes</span><strong class="org-negative">−{money(refunds)}</strong></div>
-          <div class="org-profit-row"><span>Other fees / credits / adjustments</span><strong class:org-positive={otherAdjustments >= 0} class:org-negative={otherAdjustments < 0}>{signed(otherAdjustments)}</strong></div>
-          <div class="org-profit-row"><span>Business expenses</span><strong class="org-negative">−{money(businessExpenses)}</strong></div>
-          <div class="org-profit-row"><span>Purchase cost of sold items</span><strong class="org-negative">−{money(cogs)}</strong></div>
-          <div class="org-profit-row total"><span>{missingCogs.length ? 'Estimated profit' : 'Net profit'}</span><strong>{money(profit)}</strong></div>
+          <div class="org-profit-row"><span>Sales + buyer-paid shipping</span><strong class="org-positive">+{money(report.grossCents)}</strong></div>
+          <div class="org-profit-row"><span>Selling fees</span><strong class="org-negative">−{money(report.sellingFeesCents)}</strong></div>
+          <div class="org-profit-row"><span>Shipping labels</span><strong class="org-negative">−{money(report.shippingLabelsCents)}</strong></div>
+          <div class="org-profit-row"><span>Refunds & disputes</span><strong class="org-negative">−{money(report.refundsCents)}</strong></div>
+          <div class="org-profit-row"><span>Other fees / credits / adjustments</span><strong class:org-positive={report.otherAdjustmentsCents >= 0} class:org-negative={report.otherAdjustmentsCents < 0}>{signed(report.otherAdjustmentsCents)}</strong></div>
+          <div class="org-profit-row"><span>Business expenses</span><strong class="org-negative">−{money(report.businessExpensesCents)}</strong></div>
+          <div class="org-profit-row"><span>Purchase cost of sold items</span><strong class="org-negative">−{money(report.knownCogsCents)}</strong></div>
+          <div class="org-profit-row total"><span>{report.missingCosts ? 'Estimated profit' : 'Net profit'}</span><strong>{money(report.profitCents)}</strong></div>
         </div>
       </article>
 
@@ -198,9 +156,9 @@
     </section>
 
     <section class="org-card">
-      <div class="org-card-head"><div><span class="org-kicker">RECENT EXPENSES</span><h2>Business-wide costs</h2></div><span class="org-pill">{manualExpenses.length} in period</span></div>
-      {#if manualExpenses.length}
-        <div class="org-table-wrap"><table class="org-table"><thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Note</th><th class="num">Amount</th></tr></thead><tbody>{#each manualExpenses.slice(0, 10) as expense}<tr><td>{shortDate(expense.transactionDate)}</td><td>{expense.description ?? 'Business expense'}</td><td>{expense.expenseCategory?.replace(/_/g, ' ') ?? 'Other'}</td><td>{expense.memo ?? '—'}</td><td class="num money-negative">−{money(Math.abs(expense.amountCents))}</td></tr>{/each}</tbody></table></div>
+      <div class="org-card-head"><div><span class="org-kicker">RECENT EXPENSES</span><h2>Business-wide costs</h2></div><span class="org-pill">latest {report.manualExpenses.length}</span></div>
+      {#if report.manualExpenses.length}
+        <div class="org-table-wrap"><table class="org-table"><thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Note</th><th class="num">Amount</th></tr></thead><tbody>{#each report.manualExpenses as expense}<tr><td>{shortDate(expense.transactionDate)}</td><td>{expense.description ?? 'Business expense'}</td><td>{expense.expenseCategory?.replace(/_/g, ' ') ?? 'Other'}</td><td>{expense.memo ?? '—'}</td><td class="num money-negative">−{money(Math.abs(expense.amountCents))}</td></tr>{/each}</tbody></table></div>
       {:else}<div class="org-empty"><Check size={20} /><strong>No manual expenses in this period.</strong>Add them above when they happen.</div>{/if}
     </section>
   </div>

@@ -1,16 +1,20 @@
 <script lang="ts">
-  import { page } from '$app/state';
   import { invalidateAll } from '$app/navigation';
-  import { Boxes, Check, ChevronRight, ClipboardCheck, Plus, Search, ShoppingBag, X } from '@lucide/svelte';
+  import { Boxes, Check, ChevronLeft, ChevronRight, ClipboardCheck, Plus, Search, ShoppingBag, X } from '@lucide/svelte';
   import PageChrome from '$lib/components/organized/PageChrome.svelte';
-  import { BUILT_IN_INVENTORY_CATEGORIES } from '$lib/inventory-categories';
   import { money, shortDate } from '$lib/money';
   import type { InventoryCategory, InventoryRow } from '$lib/types';
-  import type { OrganizedDashboardData } from '$lib/server/organized-dashboard';
+  import type { PageData } from './$types';
 
-  let { data }: { data: OrganizedDashboardData } = $props();
+  let { data }: { data: PageData } = $props();
 
-  let query = $state('');
+  const shell = $derived(data.shell);
+  const inventory = $derived(data.inventory);
+  const counts = $derived(shell.counts);
+  const filters = $derived(inventory.filters);
+  const pager = $derived(inventory.pagination);
+  const categories = $derived(inventory.categories);
+
   let addOpen = $state(false);
   let saving = $state(false);
   let formMessage = $state<string | null>(null);
@@ -22,58 +26,35 @@
   let condition = $state('');
   let purchasedAt = $state(new Date().toISOString().slice(0, 10));
 
-  const status = $derived(page.url.searchParams.get('status') ?? 'all');
-  const quality = $derived(page.url.searchParams.get('quality') ?? 'all');
-  const age = $derived(page.url.searchParams.get('age') ?? 'all');
+  function inventoryHref(overrides: {
+    page?: number;
+    status?: string;
+    quality?: string;
+    age?: string;
+    query?: string;
+  } = {}) {
+    const params = new URLSearchParams();
+    const status = overrides.status ?? filters.status;
+    const quality = overrides.quality ?? filters.quality;
+    const age = overrides.age ?? filters.age;
+    const query = overrides.query ?? filters.query;
+    const page = overrides.page ?? 1;
 
-  const unsold = $derived(data.inventory.filter((item) => item.status !== 'sold'));
-  const active = $derived(data.inventory.filter((item) => item.status === 'active'));
-  const scheduled = $derived(data.inventory.filter((item) => item.status === 'scheduled'));
-  const unlisted = $derived(data.inventory.filter((item) => item.status === 'unlisted'));
-  const stale = $derived(active.filter((item) => item.ageDays >= 91));
-  const missing = $derived(unsold.filter((item) => item.costCents == null || !item.source?.trim() || !item.location?.trim()));
+    if (status !== 'all') params.set('status', status);
+    if (quality !== 'all') params.set('quality', quality);
+    if (age !== 'all') params.set('age', age);
+    if (query) params.set('q', query);
+    if (page > 1) params.set('page', String(page));
 
-  const counts = $derived({
-    inventoryAll: unsold.length,
-    inventoryUnlisted: unlisted.length,
-    inventoryScheduled: scheduled.length,
-    inventoryActive: active.length,
-    inventoryMissing: missing.length,
-    soldAll: data.sales.length,
-    soldMissingCogs: data.sales.filter((sale) => sale.cogsCents == null).length,
-    soldUnmatched: data.sales.filter((sale) => !sale.inventoryItemId).length
-  });
-
-  const filtered = $derived.by(() => {
-    const needle = query.trim().toLowerCase();
-    return unsold.filter((item) => {
-      if (status !== 'all' && item.status !== status) return false;
-      if (quality === 'missing' && item.costCents != null && item.source?.trim() && item.location?.trim()) return false;
-      if (age === 'stale' && !(item.status === 'active' && item.ageDays >= 91)) return false;
-      if (!needle) return true;
-      return [item.title, item.sku, item.ebayItemId, item.source, item.location, item.conditionName]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-        .includes(needle);
-    });
-  });
-
-  const categories = $derived.by(() => {
-    const seen = new Set<string>();
-    const result: Array<{ value: InventoryCategory; label: string; prefix: string }> =
-      BUILT_IN_INVENTORY_CATEGORIES.map((option) => ({ value: option.value, label: option.label, prefix: option.prefix }));
-    for (const item of data.inventory) {
-      if (result.some((candidate) => candidate.value === item.category) || seen.has(item.category)) continue;
-      seen.add(item.category);
-      result.push({ value: item.category, label: item.category.replace(/_/g, ' '), prefix: 'OTH' });
-    }
-    return result;
-  });
+    const queryString = params.toString();
+    return queryString ? `/inventory?${queryString}` : '/inventory';
+  }
 
   function resetForm() {
     title = '';
-    category = 'other';
+    category = categories.some((option) => option.value === 'other')
+      ? 'other'
+      : (categories[0]?.value ?? 'other');
     purchaseCost = '';
     source = '';
     location = '';
@@ -141,9 +122,9 @@
   active="inventory-all"
   eyebrow="INVENTORY"
   title="Inventory"
-  workspace={data.workspace}
-  connected={data.connected}
-  lastSyncedAt={data.lastSyncedAt}
+  workspace={shell.workspace}
+  connected={shell.connected}
+  lastSyncedAt={shell.lastSyncedAt}
   {counts}
 >
   {#snippet headerActions()}
@@ -155,48 +136,59 @@
     <section class="org-card inventory-intro">
       <div>
         <span class="org-kicker">WHAT YOU OWN</span>
-        <h2>{unsold.length} item{unsold.length === 1 ? '' : 's'} currently in inventory</h2>
+        <h2>{counts.inventoryAll} item{counts.inventoryAll === 1 ? '' : 's'} currently in inventory</h2>
         <p>Track what you bought, where it is, whether it is listed, and how much money is tied up in it.</p>
       </div>
       <a class="org-button secondary" href="/listing-prep"><ClipboardCheck size={15} /> Prep listings</a>
     </section>
 
     <section class="inventory-status-grid" aria-label="Inventory status">
-      <a class:active={status === 'all' && quality === 'all' && age === 'all'} href="/inventory">
-        <span>All inventory</span><strong>{unsold.length}</strong><small>{money(unsold.reduce((sum, item) => sum + (item.costCents ?? 0), 0))} invested</small>
+      <a class:active={filters.status === 'all' && filters.quality === 'all' && filters.age === 'all'} href="/inventory">
+        <span>All inventory</span><strong>{counts.inventoryAll}</strong><small>{money(inventory.summary.inventoryBasisCents)} invested</small>
       </a>
-      <a class:active={status === 'unlisted'} href="/inventory?status=unlisted">
-        <span>Unlisted</span><strong>{unlisted.length}</strong><small>waiting to list</small>
+      <a class:active={filters.status === 'unlisted'} href="/inventory?status=unlisted">
+        <span>Unlisted</span><strong>{counts.inventoryUnlisted}</strong><small>waiting to list</small>
       </a>
-      <a class:active={status === 'scheduled'} href="/inventory?status=scheduled">
-        <span>Scheduled</span><strong>{scheduled.length}</strong><small>queued to go live</small>
+      <a class:active={filters.status === 'scheduled'} href="/inventory?status=scheduled">
+        <span>Scheduled</span><strong>{counts.inventoryScheduled}</strong><small>queued to go live</small>
       </a>
-      <a class:active={status === 'active'} href="/inventory?status=active">
-        <span>Active</span><strong>{active.length}</strong><small>{money(active.reduce((sum, item) => sum + (item.listPriceCents ?? 0), 0))} asking</small>
+      <a class:active={filters.status === 'active' && filters.age === 'all'} href="/inventory?status=active">
+        <span>Active</span><strong>{counts.inventoryActive}</strong><small>{money(inventory.summary.activeValueCents)} asking</small>
       </a>
-      <a class:attention={missing.length > 0} class:active={quality === 'missing'} href="/inventory?quality=missing">
-        <span>Needs info</span><strong>{missing.length}</strong><small>cost, source or location</small>
+      <a class:attention={counts.inventoryMissing > 0} class:active={filters.quality === 'missing'} href="/inventory?quality=missing">
+        <span>Needs info</span><strong>{counts.inventoryMissing}</strong><small>cost, source or location</small>
       </a>
-      <a class:attention={stale.length > 0} class:active={age === 'stale'} href="/inventory?status=active&age=stale">
-        <span>90+ days</span><strong>{stale.length}</strong><small>worth a pricing review</small>
+      <a class:attention={inventory.summary.staleCount > 0} class:active={filters.age === 'stale'} href="/inventory?status=active&age=stale">
+        <span>90+ days</span><strong>{inventory.summary.staleCount}</strong><small>{money(inventory.summary.staleCapitalCents)} tied up</small>
       </a>
     </section>
 
     <section class="org-card">
-      <div class="org-toolbar inventory-toolbar">
+      <form method="GET" class="org-toolbar inventory-toolbar">
+        {#if filters.status !== 'all'}<input type="hidden" name="status" value={filters.status} />{/if}
+        {#if filters.quality !== 'all'}<input type="hidden" name="quality" value={filters.quality} />{/if}
+        {#if filters.age !== 'all'}<input type="hidden" name="age" value={filters.age} />{/if}
         <label class="org-search">
           <Search size={16} />
-          <input class="org-input" bind:value={query} placeholder="Search title, SKU, source or location…" />
+          <input class="org-input" name="q" value={filters.query} placeholder="Search title, SKU, source or location…" />
         </label>
-        <span class="view-count">{filtered.length} shown</span>
+        <div class="toolbar-actions">
+          {#if filters.query}<a class="org-button ghost mini" href={inventoryHref({ query: '' })}>Clear</a>{/if}
+          <button class="org-button secondary mini" type="submit">Search</button>
+        </div>
+      </form>
+
+      <div class="result-meta">
+        <span>{pager.total ? `${pager.from}–${pager.to} of ${pager.total}` : '0 items'}</span>
+        {#if filters.query}<span>Search: “{filters.query}”</span>{/if}
       </div>
 
-      {#if filtered.length}
+      {#if inventory.items.length}
         <div class="org-table-wrap">
           <table class="org-table">
             <thead><tr><th>Item</th><th>Status</th><th>Location</th><th>Source</th><th class="num">Cost</th><th class="num">List price</th><th class="num">Age</th><th></th></tr></thead>
             <tbody>
-              {#each filtered as item}
+              {#each inventory.items as item}
                 <tr>
                   <td class="title">
                     <a href={`/inventory/${encodeURIComponent(item.id)}`}>
@@ -221,6 +213,18 @@
         </div>
       {:else}
         <div class="org-empty"><Boxes size={20} /><strong>No inventory matches this view.</strong>Try another status or clear the search.</div>
+      {/if}
+
+      {#if pager.pageCount > 1}
+        <nav class="pager" aria-label="Inventory pages">
+          {#if pager.page > 1}
+            <a class="org-button secondary mini" href={inventoryHref({ page: pager.page - 1 })}><ChevronLeft size={13} /> Previous</a>
+          {:else}<span></span>{/if}
+          <span>Page <strong>{pager.page}</strong> of {pager.pageCount}</span>
+          {#if pager.page < pager.pageCount}
+            <a class="org-button secondary mini" href={inventoryHref({ page: pager.page + 1 })}>Next <ChevronRight size={13} /></a>
+          {:else}<span></span>{/if}
+        </nav>
       {/if}
     </section>
   </div>
@@ -258,45 +262,29 @@
 </PageChrome>
 
 <style>
-  .inventory-intro {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 18px;
-    padding: 18px 20px;
-  }
-  .inventory-intro h2 { margin: 4px 0 5px; font-size: 1rem; }
-  .inventory-intro p { margin: 0; color: #66818f; font-size: .68rem; line-height: 1.55; }
-  .inventory-status-grid {
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 9px;
-  }
-  .inventory-status-grid a {
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    border: 1px solid #1c3547;
-    border-radius: 11px;
-    padding: 13px 14px;
-    color: #8da4b4;
-    background: #0a1520;
-    text-decoration: none;
-  }
-  .inventory-status-grid a:hover,
-  .inventory-status-grid a.active { border-color: #1d7187; background: #0b1e2a; }
-  .inventory-status-grid a.attention strong { color: #f0bd6a; }
-  .inventory-status-grid span { font-size: .65rem; font-weight: 800; }
-  .inventory-status-grid strong { color: #f1f7fb; font-size: 1.35rem; }
-  .inventory-status-grid small { overflow: hidden; color: #5e7a8d; font-size: .58rem; text-overflow: ellipsis; white-space: nowrap; }
-  .inventory-toolbar { justify-content: space-between; }
-  .inventory-toolbar .org-search { max-width: 560px; flex: 1; }
-  .view-count { color: #66818f; font-size: .65rem; font-weight: 800; }
-  .org-modal a { color: #64c7d8; }
-  @media (max-width: 1120px) { .inventory-status-grid { grid-template-columns: repeat(3, 1fr); } }
-  @media (max-width: 700px) {
-    .inventory-intro { align-items: stretch; flex-direction: column; }
-    .inventory-status-grid { grid-template-columns: repeat(2, 1fr); }
+  .inventory-intro { display:flex; align-items:center; justify-content:space-between; gap:18px; padding:18px 20px; }
+  .inventory-intro h2 { margin:4px 0 5px; font-size:1rem; }
+  .inventory-intro p { margin:0; color:#66818f; font-size:.68rem; line-height:1.55; }
+  .inventory-status-grid { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:9px; }
+  .inventory-status-grid a { min-width:0; display:flex; flex-direction:column; gap:4px; border:1px solid #1c3547; border-radius:11px; padding:13px 14px; color:#8da4b4; background:#0a1520; text-decoration:none; }
+  .inventory-status-grid a:hover, .inventory-status-grid a.active { border-color:#1d7187; background:#0b1e2a; }
+  .inventory-status-grid a.attention strong { color:#f0bd6a; }
+  .inventory-status-grid span { font-size:.65rem; font-weight:800; }
+  .inventory-status-grid strong { color:#f1f7fb; font-size:1.35rem; }
+  .inventory-status-grid small { overflow:hidden; color:#5e7a8d; font-size:.58rem; text-overflow:ellipsis; white-space:nowrap; }
+  .inventory-toolbar { justify-content:space-between; gap:12px; }
+  .inventory-toolbar .org-search { max-width:620px; flex:1; }
+  .toolbar-actions { display:flex; gap:7px; align-items:center; }
+  .result-meta { display:flex; justify-content:space-between; gap:12px; padding:9px 14px; border-top:1px solid #172d3d; color:#66818f; font-size:.62rem; }
+  .pager { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:12px; padding:14px; border-top:1px solid #1c3547; color:#718a99; font-size:.66rem; }
+  .pager > :last-child { justify-self:end; }
+  .org-modal a { color:#64c7d8; }
+  @media (max-width:1120px) { .inventory-status-grid { grid-template-columns:repeat(3,1fr); } }
+  @media (max-width:700px) {
+    .inventory-intro { align-items:stretch; flex-direction:column; }
+    .inventory-status-grid { grid-template-columns:repeat(2,1fr); }
+    .inventory-toolbar { align-items:stretch; flex-direction:column; }
+    .toolbar-actions { justify-content:flex-end; }
+    .result-meta { flex-direction:column; }
   }
 </style>
