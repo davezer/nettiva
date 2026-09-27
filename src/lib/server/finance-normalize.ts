@@ -89,10 +89,11 @@ export function categoryFromCsv(type?: string | null): FinanceCategory {
 }
 
 export function categoryFromApi(transactionType?: string, feeType?: string): FinanceCategory {
-  if (feeType) return 'selling_fee';
-
   const type = (transactionType ?? '').toUpperCase().replace(/[\s-]+/g, '_');
 
+  // Transaction type is the strongest signal. In particular, eBay may attach
+  // fee metadata to SHIPPING_LABEL transactions; those must remain postage,
+  // not get reclassified as marketplace selling fees.
   if (type.includes('SHIPPING') && type.includes('LABEL')) return 'shipping_label';
   if (type.includes('REFUND')) return 'refund';
   if (type.includes('DISPUTE') || type.includes('CLAIM')) return 'dispute';
@@ -102,8 +103,12 @@ export function categoryFromApi(transactionType?: string, feeType?: string): Fin
   if (type.includes('RESERVE')) return 'reserve';
   if (type.includes('PURCHASE')) return 'purchase';
   if (type.includes('ADJUSTMENT') || type === 'CREDIT') return 'adjustment';
-  if (type.includes('FEE') || type.includes('CHARGE')) return 'other_fee';
   if (type.includes('SALE')) return 'sale';
+
+  // feeType is useful for standalone fee/credit rows, but only after the
+  // semantic transaction types above have had a chance to classify the row.
+  if (feeType) return 'selling_fee';
+  if (type.includes('FEE') || type.includes('CHARGE')) return 'other_fee';
 
   return 'other';
 }
