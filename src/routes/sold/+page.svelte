@@ -1,6 +1,7 @@
 <script lang="ts">
   import { AlertTriangle, Check, ChevronLeft, ChevronRight, CircleDollarSign, Link2Off, PackageCheck, Search } from '@lucide/svelte';
   import PageChrome from '$lib/components/organized/PageChrome.svelte';
+  import OutsideSaleButton from '$lib/components/organized/OutsideSaleButton.svelte';
   import { money, shortDate } from '$lib/money';
   import type { PageData } from './$types';
 
@@ -32,6 +33,7 @@
 <svelte:head><title>Sellquity · Sales</title></svelte:head>
 
 <PageChrome active="sold-all" eyebrow="SALES" title="Sales" workspace={shell.workspace} connected={shell.connected} lastSyncedAt={shell.lastSyncedAt} {counts}>
+  {#snippet headerActions()}<OutsideSaleButton />{/snippet}
   <div class="org-stack">
     <section class="org-grid cols-3">
       <article class="org-card org-metric">
@@ -100,7 +102,7 @@
                   <td class="title">
                     <a href={`/sold/${encodeURIComponent(sale.id)}`}>
                       {#if sale.imageUrl}<img class="org-item-thumb" src={sale.imageUrl} alt="" />{:else}<span class="org-item-thumb"></span>{/if}
-                      <span><strong>{sale.title}</strong><small>{sale.ebayOrderId}{sale.sku ? ` · ${sale.sku}` : ''}</small></span>
+                      <span><strong>{sale.title}</strong><small>{sale.channelLabel ?? sale.ebayOrderId}{sale.sku ? ` · ${sale.sku}` : ''}</small></span>
                     </a>
                   </td>
                   <td>{shortDate(sale.soldAt)}</td>
@@ -109,7 +111,7 @@
                   <td class:org-warning={sale.cogsCents == null} class="num">{sale.cogsCents == null ? 'Add cost' : `−${money(sale.cogsCents)}`}</td>
                   <td class="num" class:money-positive={sale.cogsCents != null} class:org-warning={sale.cogsCents == null}>{sale.cogsCents == null ? 'Estimated' : money(sale.netProfitCents)}</td>
                   <td class="num">{sale.cogsCents == null ? '—' : percent(sale.margin)}</td>
-                  <td class="num"><a class="org-button ghost mini" href={`/sold/${encodeURIComponent(sale.id)}`}>Details <ChevronRight size={12} /></a></td>
+                  <td class="num">{#if sale.marketplaceProvider === 'manual'}<span class="org-pill">Manual</span>{:else}<a class="org-button ghost mini" href={`/sold/${encodeURIComponent(sale.id)}`}>Details <ChevronRight size={12} /></a>{/if}</td>
                 </tr>
               {/each}
             </tbody>

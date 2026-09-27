@@ -91,6 +91,9 @@ export const POST: RequestHandler = async ({ platform, request, locals, url }) =
   const authEmail = authUser?.email ?? locals.authEmail ?? '';
 
   await db.batch([
+    db.prepare(`DELETE FROM manual_sale_metadata WHERE workspace_id = ?`).bind(workspaceId),
+    db.prepare(`DELETE FROM inventory_cost_adjustments WHERE workspace_id = ?`).bind(workspaceId),
+    db.prepare(`DELETE FROM inventory_dispositions WHERE workspace_id = ?`).bind(workspaceId),
     db.prepare(`DELETE FROM marketplace_balance_entries WHERE workspace_id = ?`).bind(workspaceId),
     db.prepare(`DELETE FROM financial_transactions WHERE workspace_id = ?`).bind(workspaceId),
     db.prepare(`DELETE FROM order_items WHERE workspace_id = ?`).bind(workspaceId),

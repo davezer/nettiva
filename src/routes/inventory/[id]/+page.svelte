@@ -2,6 +2,7 @@
   import { invalidateAll } from '$app/navigation';
   import { ArrowLeft, Check, ChevronRight, ClipboardCheck, ExternalLink, PackageCheck, Save, Tag } from '@lucide/svelte';
   import PageChrome from '$lib/components/organized/PageChrome.svelte';
+  import InventoryItemActions from '$lib/components/organized/InventoryItemActions.svelte';
   import { money, shortDate } from '$lib/money';
 
   let { data } = $props();
@@ -60,8 +61,6 @@
   function ebayDetailImage(value: string | null) {
     if (!value) return null;
 
-    // eBay's GalleryURL is commonly an i.ebayimg.com thumbnail such as
-    // .../s-l225.jpg. The same image service exposes a larger rendition.
     return value.replace(
       /(\/s-l)\d+(\.(?:jpe?g|png|webp))(.*)$/i,
       '$11600$2$3'
@@ -122,10 +121,14 @@
 
 <svelte:head><title>{item.title} · Sellquity</title></svelte:head>
 
-<PageChrome active="inventory" eyebrow="INVENTORY ITEM" title="Item details" workspace={dashboard.workspace} connected={dashboard.connected} lastSyncedAt={dashboard.lastSyncedAt} {counts}>
+<PageChrome active="inventory" eyebrow="INVENTORY ITEM" title="Item details" workspace={dashboard.workspace} connected={dashboard.connected} lastSyncedAt={dashboard.lastSyncedAt} {counts} showConnectionAction={false}>
   {#snippet headerActions()}
     <a class="org-button secondary" href="/inventory"><ArrowLeft size={15} /> Inventory</a>
-    {#if sale}<a class="org-button primary" href={`/sold/${encodeURIComponent(sale.id)}`}><PackageCheck size={15} /> Sale breakdown</a>{/if}
+    {#if sale}
+      <a class="org-button primary" href={`/sold/${encodeURIComponent(sale.id)}`}><PackageCheck size={15} /> Sale breakdown</a>
+    {:else if item.status !== 'sold'}
+      <InventoryItemActions {item} detail />
+    {/if}
   {/snippet}
 
   <div class="org-stack">
@@ -205,9 +208,6 @@
 </PageChrome>
 
 <style>
-  /* Never blow a tiny marketplace thumbnail up to poster size. If eBay's
-     1600px rendition is available it can fill the frame naturally; otherwise
-     the fallback stays at its intrinsic size. */
   :global(.org-detail-photo-frame .inventory-detail-image) {
     width: auto;
     height: auto;

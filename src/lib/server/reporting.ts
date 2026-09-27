@@ -44,12 +44,13 @@ type SaleDbRow = {
   sku: string | null;
   category: string | null;
   source: string | null;
+  channelLabel: string | null;
 };
 
 export type PagedSaleRow = {
   id: string;
   inventoryItemId: string | null;
-  marketplaceProvider: MarketplaceProvider;
+  marketplaceProvider: MarketplaceProvider | 'manual';
   ebayOrderId: string;
   ebayLineItemId: string;
   ebayItemId: string | null;
@@ -72,6 +73,7 @@ export type PagedSaleRow = {
   sku: string | null;
   category: string | null;
   source: string | null;
+  channelLabel: string | null;
 };
 
 type InventoryDbRow = Omit<InventoryRow, 'ageDays'>;
@@ -205,6 +207,7 @@ const SALE_ROWS_CTE = `
       i.sku,
       i.inventory_category AS category,
       i.source,
+      msm.channel_label AS channelLabel,
       COALESCE(SUM(CASE
         WHEN ft.category = 'selling_fee' AND ft.amount_cents < 0
         THEN -ft.amount_cents ELSE 0 END), 0) AS sellingFeesCents,
@@ -235,6 +238,9 @@ const SALE_ROWS_CTE = `
      AND i.workspace_id = oi.workspace_id
     LEFT JOIN line_counts lc
       ON lc.order_id = oi.order_id
+    LEFT JOIN manual_sale_metadata msm
+      ON msm.workspace_id = oi.workspace_id
+     AND msm.order_item_id = oi.id
     LEFT JOIN financial_transactions ft
       ON ft.workspace_id = oi.workspace_id
      AND ft.marketplace_provider = oi.marketplace_provider
@@ -278,7 +284,11 @@ function mapSale(row: SaleDbRow): PagedSaleRow {
 
   return {
     ...row,
-    marketplaceProvider: row.marketplaceProvider === 'whatnot' ? 'whatnot' : 'ebay',
+    marketplaceProvider: row.marketplaceProvider === 'whatnot'
+      ? 'whatnot'
+      : row.marketplaceProvider === 'manual'
+        ? 'manual'
+        : 'ebay',
     ebayOrderId: row.ebayOrderId ?? row.id,
     ebayLineItemId: row.ebayLineItemId ?? row.id,
     salePriceCents,
@@ -563,7 +573,8 @@ export async function loadSalesPageData(
       COALESCE(title, '') || ' ' ||
       COALESCE(ebayOrderId, '') || ' ' ||
       COALESCE(ebayItemId, '') || ' ' ||
-      COALESCE(sku, '')
+      COALESCE(sku, '') || ' ' ||
+      COALESCE(channelLabel, '')
     ) LIKE ?`);
     filterBindings.push(`%${query.toLowerCase()}%`);
   }

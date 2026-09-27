@@ -2,6 +2,7 @@
   import { invalidateAll } from '$app/navigation';
   import { Boxes, Check, ChevronLeft, ChevronRight, ClipboardCheck, Plus, Search, ShoppingBag, X } from '@lucide/svelte';
   import PageChrome from '$lib/components/organized/PageChrome.svelte';
+  import InventoryItemActions from '$lib/components/organized/InventoryItemActions.svelte';
   import { money, shortDate } from '$lib/money';
   import type { InventoryCategory, InventoryRow } from '$lib/types';
   import type { PageData } from './$types';
@@ -205,7 +206,7 @@
                   <td class:org-warning={item.costCents == null} class="num">{item.costCents == null ? 'Add cost' : money(item.costCents)}</td>
                   <td class="num">{item.listPriceCents == null ? '—' : money(item.listPriceCents)}</td>
                   <td class:org-warning={item.status === 'active' && item.ageDays >= 91} class="num">{item.status === 'active' || item.status === 'scheduled' ? `${item.ageDays}d` : '—'}</td>
-                  <td class="num"><a class="org-button ghost mini" href={`/inventory/${encodeURIComponent(item.id)}`}>Open <ChevronRight size={12} /></a></td>
+                  <td class="num action-cell"><div class="row-actions"><a class="org-button ghost mini" href={`/inventory/${encodeURIComponent(item.id)}`}>Open <ChevronRight size={12} /></a><InventoryItemActions {item} /></div></td>
                 </tr>
               {/each}
             </tbody>
@@ -279,6 +280,8 @@
   .pager { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:12px; padding:14px; border-top:1px solid #1c3547; color:#718a99; font-size:.66rem; }
   .pager > :last-child { justify-self:end; }
   .org-modal a { color:#64c7d8; }
+  .row-actions { display:flex; align-items:center; justify-content:flex-end; gap:6px; }
+  .action-cell { overflow:visible; }
   @media (max-width:1120px) { .inventory-status-grid { grid-template-columns:repeat(3,1fr); } }
   @media (max-width:700px) {
     .inventory-intro { align-items:stretch; flex-direction:column; }

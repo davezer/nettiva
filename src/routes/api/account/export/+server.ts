@@ -50,7 +50,10 @@ export const GET: RequestHandler = async ({ platform, locals }) => {
     db.prepare(`SELECT * FROM sku_sequences WHERE workspace_id = ? ORDER BY prefix`).bind(workspaceId),
     db.prepare(`SELECT * FROM sku_reservations WHERE workspace_id = ? ORDER BY reserved_at`).bind(workspaceId),
     db.prepare(`SELECT * FROM import_batches WHERE workspace_id = ? ORDER BY imported_at`).bind(workspaceId),
-    db.prepare(`SELECT * FROM sync_jobs WHERE workspace_id = ? ORDER BY started_at`).bind(workspaceId)
+    db.prepare(`SELECT * FROM sync_jobs WHERE workspace_id = ? ORDER BY started_at`).bind(workspaceId),
+    db.prepare(`SELECT * FROM inventory_dispositions WHERE workspace_id = ? ORDER BY occurred_at`).bind(workspaceId),
+    db.prepare(`SELECT * FROM inventory_cost_adjustments WHERE workspace_id = ? ORDER BY occurred_at`).bind(workspaceId),
+    db.prepare(`SELECT * FROM manual_sale_metadata WHERE workspace_id = ? ORDER BY created_at`).bind(workspaceId)
   ]);
 
   const workspace = (results[0].results[0] ?? null) as Record<string, unknown> | null;
@@ -58,7 +61,7 @@ export const GET: RequestHandler = async ({ platform, locals }) => {
   const exportedAt = new Date().toISOString();
 
   const payload = {
-    exportVersion: 1,
+    exportVersion: 2,
     exportedAt,
     account: {
       name: locals.authName,
@@ -80,7 +83,10 @@ export const GET: RequestHandler = async ({ platform, locals }) => {
       skuSequences: results[11].results,
       skuReservations: results[12].results,
       importHistory: results[13].results,
-      syncHistory: results[14].results
+      syncHistory: results[14].results,
+      inventoryDispositions: results[15].results,
+      inventoryCostAdjustments: results[16].results,
+      manualSaleMetadata: results[17].results
     },
     notes: [
       'eBay access and refresh tokens are intentionally excluded from exports.',

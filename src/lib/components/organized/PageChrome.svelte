@@ -16,19 +16,20 @@
     eyebrow,
     title,
     connected,
-    headerActions
+    headerActions,
+    showConnectionAction = true
   }: {
     children: Snippet;
     eyebrow: string;
     title: string;
     connected: boolean;
     headerActions?: Snippet;
+    showConnectionAction?: boolean;
     active?: string;
     workspace?: WorkspaceSummary;
     lastSyncedAt?: string | null;
     counts?: unknown;
   } = $props();
-
 
   let syncing = $state(false);
   let syncMessage = $state<string | null>(null);
@@ -84,13 +85,15 @@
   </div>
   <div class="organized-top-actions">
     {#if headerActions}{@render headerActions()}{/if}
-    {#if connected}
-      <button class="org-button secondary" type="button" disabled={syncing} onclick={syncNow}>
-        {#if syncing}<LoaderCircle class="spin" size={16} />{:else}<RefreshCw size={16} />{/if}
-        {syncing ? 'Syncing…' : 'Sync eBay'}
-      </button>
-    {:else}
-      <a class="org-button primary" href="/integrations/ebay"><PlugZap size={16} /> Connect eBay</a>
+    {#if showConnectionAction}
+      {#if connected}
+        <button class="org-button secondary" type="button" disabled={syncing} onclick={syncNow}>
+          {#if syncing}<LoaderCircle class="spin" size={16} />{:else}<RefreshCw size={16} />{/if}
+          {syncing ? 'Syncing…' : 'Sync eBay'}
+        </button>
+      {:else}
+        <a class="org-button primary" href="/integrations/ebay"><PlugZap size={16} /> Connect eBay</a>
+      {/if}
     {/if}
   </div>
 </header>
